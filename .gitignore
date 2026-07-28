@@ -1,0 +1,36 @@
+# Python Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python Cache & Compiled Files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Local Vector Storage (Qdrant Docker data)
+qdrant_storage/
+qdrant_data/
+
+# Application Logs
+logs/
+*.log
+
+# Environment & Secret Files
+.env
+.env.local
+*.env
+
+# IDE & Editor Settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Generated Files
+.DS_Store
+Thumbs.db

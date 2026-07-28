@@ -1,0 +1,14 @@
+# ── LangChain Core Stack ──────────────────────────────────────────────
+langchain-community          # DirectoryLoader, TextLoader, and other loaders
+langchain-core               # Document, BaseLoader base classes
+langchain-text-splitters     # RecursiveCharacterTextSplitter for chunking
+
+# ── Embeddings ────────────────────────────────────────────────────────
+langchain-huggingface        # HuggingFaceEmbeddings wrapper
+sentence-transformers        # The actual embedding models (e.g. all-MiniLM, paraphrase-multilingual)
+
+# ── Vector Database ───────────────────────────────────────────────────
+langchain-qdrant             # LangChain ↔ Qdrant integration
+qdrant-client                # Direct Qdrant Python client (REST + gRPC)
+FlagEmbedding
+
