@@ -1,72 +1,89 @@
 # Islamic AI Chatbot — Vector Store Pipeline
 
-An enterprise-grade Data Ingestion and Vector Pipeline for an Islamic AI Chatbot, built with Python, LangChain, Qdrant, and HuggingFace Sentence Transformers.
+An enterprise-grade Data Ingestion and Vector Pipeline for an Islamic AI Chatbot, built with Python, LangChain, Qdrant, and OpenAI Embeddings.
 
 ---
 
-## 🚀 Key Architectural Highlights
+## 🚀 Key Architectural Highlights & Interview Talking Points
 
-### Custom Document Loader (`IslamicJSONLoader`) vs Built-in Loaders
+### 1. Custom Document Loader (`IslamicJSONLoader`) vs Built-in Loaders
 
 Rather than using LangChain's built-in `JSONLoader`, this project uses a custom `IslamicJSONLoader` extending `BaseLoader`.
 
 #### Why Use a Custom Loader?
-
-1. **Windows Native & `jq`-Free Deployment**:
-   - LangChain's built-in `JSONLoader` requires `jq` (a C-based JSON parsing library) which is notoriously difficult to install on Windows environments.
-   - `IslamicJSONLoader` uses Python's native `json` module, making the pipeline 100% portable across Windows, Linux, macOS, and Docker.
-
-2. **Heterogeneous Dataset Auto-Detection**:
-   - Islamic datasets store primary texts under different keys (Quran/Hadith → `"translation"`, Tafsir → `"tafsir"`).
-   - `IslamicJSONLoader` dynamically detects content keys using `CONTENT_KEY_PRIORITY`, eliminating hardcoded per-file schemas.
-
-3. **Multi-Field Context Fusion (Hadiths)**:
-   - Built-in loaders only support extracting a single key as page content.
-   - `IslamicJSONLoader` dynamically fuses `narrator` + `translation` into `page_content` (*e.g., "Narrated 'Umar bin Al-Khattab: I heard Allah's Messenger..."*), preserving full semantic context for vector embeddings.
-
-4. **Payload & Deployment Cost Optimization**:
-   - Selectively flattens nested metadata (`meta_data`) and excludes unused heavy text bloat, significantly lowering vector storage costs in Qdrant.
+* **Windows Native & `jq`-Free Deployment**: Standard `JSONLoader` requires `jq` (a C-based library) which is difficult to install/configure on Windows. `IslamicJSONLoader` uses standard Python `json`, rendering the pipeline 100% portable across Windows, Linux, macOS, and Docker.
+* **Heterogeneous Dataset Auto-Detection**: Dynamically scans for content keys (`translation`, `tafsir`, `text`, `content`) via `CONTENT_KEY_PRIORITY`, eliminating hardcoded per-file JSON schemas.
+* **Multi-Field Context Fusion**: Fuses `narrator` + `translation` into `page_content` (*e.g., "Narrated 'Umar bin Al-Khattab: I heard Allah's Messenger..."*), preserving full semantic context for vector embeddings.
+* **Metadata Optimization**: Selectively flattens nested metadata and excludes redundant text bloat, minimizing vector database storage overhead in Qdrant.
 
 ---
 
-## 🤖 Embedding Model — BGE-M3
+### 2. Embedding Model — OpenAI `text-embedding-3-small` (1536-Dim)
 
-This pipeline uses **[BGE-M3](https://huggingface.co/BAAI/bge-m3)** (`BAAI/bge-m3`), developed by the Beijing Academy of Artificial Intelligence (BAAI). It is one of the most capable open-source multilingual embedding models available.
+The pipeline utilizes OpenAI's state-of-the-art **`text-embedding-3-small`** model.
 
-### Why BGE-M3?
-
-| Capability | Details |
-| :--- | :--- |
-| **Multi-functional** | Supports dense, sparse, and multi-vector retrieval in a single model |
-| **Multi-lingual** | Covers 100+ languages including Arabic, Urdu, English, and Russian |
-| **Multi-granularity** | Handles inputs from short sentences up to 8,192 tokens (long documents) |
-
-### ⚠️ Points to Be Aware Of
-
-- **Generalizability**: Performs well on benchmarks but may need validation on specific real-world Islamic datasets.
-- **Computational cost**: Processing very long documents (near 8,192 tokens) is resource-intensive on CPU.
-- **Language variance**: Performance may vary slightly across different language families.
-
-> For English-only use cases, consider lighter alternatives: `bge-base-en-v1.5` or `bge-en-icl`.
+* **Vector Dimension**: `1,536`
+* **Context Window**: `8,191 tokens` (~32,000 English characters / ~14,000 Arabic characters)
+* **Multilingual Coverage**: Superior semantic representation across English, Arabic, Urdu, Russian, and 50+ languages.
 
 ---
 
+### 3. Chunking Strategy & Granularity (1200 Characters)
 
+* **Why 1,200 Characters (~250–400 Tokens)?**
+  Even though `text-embedding-3-small` supports up to 8,191 tokens, embedding massive chunks dilutes vector specificity (semantic noise). `1200 characters` with `150 overlap` is the proven "sweet spot" for RAG: it preserves exact factual precision while providing complete paragraph context to the downstream LLM.
+* **Domain-Specific Handling**:
+  * **Quran, Hadith, Tafsir**: Preserved as intact **1-to-1 JSON records** without arbitrary text splitting to maintain theological integrity.
+  * **General Islamic Books**: Split dynamically using `RecursiveCharacterTextSplitter`.
+
+---
+
+### 4. Production Batching & Resiliency (`BATCH_SIZE = 500` & Auto-Resume)
+
+* **Batching Strategy**: Embeds and uploads vectors in batches of 500 chunks. Reduces 50,000 individual HTTP calls into 100 bulk requests, preventing `HTTP 429 Rate Limits` and payload exhaustion.
+* **Stateful Auto-Resume**: Before uploading, the pipeline inspects existing Qdrant `points_count`. If interrupted halfway, it skips previously indexed chunks and resumes automatically, preventing redundant embedding costs.
+* **Cross-Platform UTF-8 Safety**: Implements stream reconfiguration (`sys.stdout.reconfigure(encoding="utf-8")`) to prevent Windows `UnicodeEncodeError` (CP1252) when printing multilingual Arabic/Urdu texts and terminal logs.
+
+---
+
+## 🎯 Technical Q&A for System Design & Technical Interviews
+
+<details>
+<summary><b>Q1: Why not embed full chapters or larger chunks since OpenAI supports 8k tokens?</b></summary>
+
+> **Answer:** Large chunks dilute vector embeddings. A single vector representing 3,000 words must average out many topics, making similarity search noisy and imprecise for specific queries. 1200 characters (~250–300 words) captures a single, dense semantic concept, maximizing retrieval precision for RAG.
+</details>
+
+<details>
+<summary><b>Q2: How do you handle schema differences across Quran, Hadith, and Tafsir datasets?</b></summary>
+
+> **Answer:** We implemented `IslamicJSONLoader` which uses priority candidate keys (`CONTENT_KEY_PRIORITY`) and conditional field fusion (e.g. combining Hadith narrator with translation text), ensuring uniform `Document` objects regardless of input source format.
+</details>
+
+<details>
+<summary><b>Q3: What happens if your ingestion script crashes at 80% completion?</b></summary>
+
+> **Answer:** The pipeline is idempotent and resilient. It checks Qdrant's `points_count` per collection before starting upload, skipping already ingested batches and resuming right where it left off, avoiding duplicate vectors or unnecessary OpenAI API billing.
+</details>
+
+---
+
+## 🏗️ Data Pipeline Architecture
 
 ```
-Raw Storage (JSON / TXT) 
+Raw Storage (JSON / TXT: Quran, Hadith, Tafsir, Books) 
        │
        ▼
-1. Preprocess Docs (IslamicJSONLoader / DirectoryLoader)
+1. Document Preprocessing (`IslamicJSONLoader` / `DirectoryLoader`)
        │
        ▼
-2. Chunking (RecursiveCharacterTextSplitter)
+2. Domain-Aware Chunking (`RecursiveCharacterTextSplitter` - 1200 chars for books; 1-to-1 for Quran/Hadith)
        │
        ▼
-3. Qdrant Setup (Cosine Similarity, 768-dim Vectors)
+3. Qdrant Collection Setup (Cosine Distance, 1536-Dim Vectors)
        │
        ▼
-4. Embed & Upload (HuggingFace Multilingual Embeddings)
+4. Batched Embedding & Upload (OpenAI `text-embedding-3-small`, Batch Size: 500, Auto-Resume)
 ```
 
 ---
@@ -74,14 +91,16 @@ Raw Storage (JSON / TXT)
 ## 📂 Project Structure
 
 ```
-├── clean.py                         # Utility script to sanitize and remove unused dataset bloat
-├── requirements.txt                 # Project dependencies
+├── clean.py                         # Utility script to sanitize raw datasets
+├── requirements.txt                 # Project dependencies (langchain-openai, qdrant-client, python-dotenv)
 ├── docker-compose.yaml              # Local Qdrant container configuration
 └── backend/
     └── vector_store/
-        ├── config.py                # Central pipeline configuration
-        ├── ingest.py                # Core ingestion pipeline & IslamicJSONLoader
-        └── storage/                 # Datasets (Quran, Hadith, Tafsir, General Books)
+        ├── .env                     # Environment variables (OPENAI_API_KEY)
+        ├── config.py                # Central pipeline configuration (1536-dim, batching, collections)
+        ├── document_loader.py       # Custom IslamicJSONLoader & preprocess_docs
+        ├── ingest.py                # Main ingestion orchestrator & batched uploader
+        └── storage/                 # Datasets (quran, hadith, tafsir, general islamic books)
 ```
 
 ---
@@ -93,12 +112,19 @@ Raw Storage (JSON / TXT)
    docker-compose up -d
    ```
 
-2. **Sanitize Raw Datasets**:
-   ```bash
-   python clean.py
+2. **Configure Environment Variables**:
+   Create `backend/vector_store/.env`:
+   ```env
+   OPENAI_API_KEY="sk-proj-..."
    ```
 
-3. **Run Ingestion Pipeline**:
+3. **Install Dependencies**:
+   ```bash
+   uv pip install -r requirements.txt
+   ```
+
+4. **Run Ingestion Pipeline**:
    ```bash
    python backend/vector_store/ingest.py
    ```
+

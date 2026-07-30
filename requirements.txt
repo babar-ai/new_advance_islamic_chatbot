@@ -5,10 +5,13 @@ langchain-text-splitters     # RecursiveCharacterTextSplitter for chunking
 
 # ── Embeddings ────────────────────────────────────────────────────────
 langchain-huggingface        # HuggingFaceEmbeddings wrapper
-sentence-transformers        # The actual embedding models (e.g. all-MiniLM, paraphrase-multilingual)
+sentence-transformers        # The actual embedding models (e.g. all-MiniLM, paraphrase
 
 # ── Vector Database ───────────────────────────────────────────────────
 langchain-qdrant             # LangChain ↔ Qdrant integration
 qdrant-client                # Direct Qdrant Python client (REST + gRPC)
 FlagEmbedding
 
+# ── OpenAI & Environment ──────────────────────────────────────────────
+langchain-openai
+python-dotenv

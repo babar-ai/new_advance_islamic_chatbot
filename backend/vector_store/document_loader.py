@@ -21,6 +21,13 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 import config
 import json 
 
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+logger = setup_logger(__name__)
+
+
 class IslamicJSONLoader(BaseLoader):
     """LangChain-compatible loader for Islamic JSON datasets."""
 
@@ -89,10 +96,10 @@ def preprocess_docs(folder_path: str) -> List[Document]:
     documents: List[Document] = []
 
     if not folder.exists() or not folder.is_dir():
-        print(f"⚠  Folder not found, skipping: {folder_path}")
+        logger.warning("Folder not found, skipping: %s", folder_path)
         return documents
 
-    print(f"\n📂 Scanning: {folder.resolve()}")
+    logger.info("Scanning: %s", folder.resolve())
 
     txt_loader = DirectoryLoader(
         path=str(folder),
@@ -111,26 +118,27 @@ def preprocess_docs(folder_path: str) -> List[Document]:
         doc.metadata["book_name"] = file_path.stem.replace("_", " ").title()
 
     if txt_docs:
-        print(f"  ✅  .txt files → {len(txt_docs)} document(s) loaded")
+        logger.info(".txt files -> %d document(s) loaded", len(txt_docs))
 
     documents.extend(txt_docs)
 
     json_files = list(folder.rglob("*.json"))
 
     for json_file in json_files:
-        print(f"  🔄  Loading JSON: {json_file.relative_to(folder)}")
+        logger.info("Loading JSON: %s", json_file.relative_to(folder))
 
         try:
             loader = IslamicJSONLoader(str(json_file))
             loaded = loader.load()
-            print(f"       → {len(loaded):,} record(s)")
+            logger.info("  -> %d record(s) loaded", len(loaded))
             documents.extend(loaded)
             
         except Exception as exc:
-            print(f"  ❌  Failed to load '{json_file.name}': {exc}")
+            logger.error("Failed to load '%s': %s", json_file.name, exc)
 
-    print(f"  📊  Total documents from '{folder.name}': {len(documents):,}\n")
+    logger.info("Total documents from '%s': %d", folder.name, len(documents))
     return documents
+
 
 
 def split_documents(documents: List[Document]) -> List[Document]:
@@ -145,3 +153,4 @@ def split_documents(documents: List[Document]) -> List[Document]:
     )
 
     return splitter.split_documents(documents)
+
