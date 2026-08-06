@@ -15,3 +15,7 @@ FlagEmbedding
 # ── OpenAI & Environment ──────────────────────────────────────────────
 langchain-openai
 python-dotenv
+
+pydantic_settings
+langgraph
+tavily

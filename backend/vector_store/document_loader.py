@@ -12,14 +12,15 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from utils.custom_logger import setup_logger
+from utils.config import settings
 
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_community.document_loaders.base import BaseLoader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-import config
 import json 
+
 
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -147,8 +148,8 @@ def split_documents(documents: List[Document]) -> List[Document]:
         return []
 
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=config.CHUNK_SIZE,
-        chunk_overlap=config.CHUNK_OVERLAP,
+        chunk_size=settings.CHUNK_SIZE,
+        chunk_overlap=settings.CHUNK_OVERLAP,
         separators=["\n\n", "\n", ". ", " ", ""],
     )
 
