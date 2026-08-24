@@ -17,11 +17,18 @@ class Settings(BaseSettings):
     QDRANT_URL: str = "http://localhost:6333"
     QDRANT_API_KEY: str = ""
 
-    # Vector Collection Names
+    # Qdrant Vector Collection Names
     QURAN_COLLECTION_NAME: str = "quran"     
     HADITH_COLLECTION_NAME: str = "hadith"
     TAFSEER_COLLECTION_NAME: str = "tafsir"
     ISLAMIC_INFO_COLLECTION_NAME: str = "general_islamic_info"
+    CLASSIFICATION_CACHE_COLLECTION_NAME: str = "classification_cache"
+
+    # Redis Connection & Caching Settings (Layer 1)
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_PASSWORD: str = ""
+    REDIS_TTL: int = 2592000  # 30 days in seconds (0 for no expiration)
 
     # Ingestion & Chunking Parameters
     CHUNK_SIZE: int = 1200

@@ -2,8 +2,9 @@ import sys
 from pathlib import Path
 from typing import List, Any, Optional
 
+import uuid
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
+from qdrant_client.models import Distance, VectorParams, PointStruct
 from langchain_qdrant import QdrantVectorStore
 from langchain_core.documents import Document
 
@@ -40,6 +41,18 @@ class QdrantService:
         )
     
         logger.info("Connected to Qdrant successfully.")
+        self.ensure_cache_collection()
+
+    def ensure_cache_collection(self) -> None:
+        """Ensures the classification_cache collection exists in Qdrant."""
+        try:
+            self.setup_collection(
+                collection_name=settings.CLASSIFICATION_CACHE_COLLECTION_NAME,
+                embedding_dimension=settings.EMBEDDING_DIMENSION,
+                force_recreate=False
+            )
+        except Exception as e:
+            logger.warning("Failed to auto-setup Qdrant cache collection: %s", e)
 
 
     def setup_collection(
@@ -161,13 +174,24 @@ class QdrantService:
         Returns raw dicts with 'content', 'metadata', and 'score' keys.
         """
         try:
-            results = self.client.search(
-                collection_name=collection_name,
-                query_vector=query_vector,
-                limit=limit,
-                with_payload=True,
-                with_vectors=False,
-            )
+            if hasattr(self.client, "query_points"):
+                res = self.client.query_points(
+                    collection_name=collection_name,
+                    query=query_vector,
+                    limit=limit,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                results = res.points
+            else:
+                results = self.client.search(
+                    collection_name=collection_name,
+                    query_vector=query_vector,
+                    limit=limit,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+
             return [
                 {
                     "content": r.payload.get("page_content", ""),
@@ -180,3 +204,74 @@ class QdrantService:
             logger.error("Error in search_by_vector for '%s': %s", collection_name, e)
             return []
 
+
+    def upsert_cache_vector(
+        self,
+        collection_name: str,
+        query_text: str,
+        query_vector: List[float],
+        classification_payload: dict,
+    ) -> None:
+        """Upserts a classification query vector and payload metadata into Qdrant cache collection."""
+        try:
+            point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, query_text.strip().lower()))
+            point = PointStruct(
+                id=point_id,
+                vector=query_vector,
+                payload={
+                    "query_text": query_text,
+                    "classification": classification_payload,
+                }
+            )
+            self.client.upsert(
+                collection_name=collection_name,
+                points=[point]
+            )
+            logger.info("Upserted classification vector for '%s' into Qdrant collection '%s'", query_text, collection_name)
+        except Exception as e:
+            logger.error("Error upserting vector into cache collection '%s': %s", collection_name, e)
+
+
+    def search_cache_vector(
+        self,
+        collection_name: str,
+        query_vector: List[float],
+        score_threshold: float = 0.85
+    ) -> Optional[dict]:
+        """
+        Searches the Qdrant classification cache collection using query vector.
+        Returns closest match dict if score exceeds score_threshold, else None.
+        """
+        try:
+            if hasattr(self.client, "query_points"):
+                res = self.client.query_points(
+                    collection_name=collection_name,
+                    query=query_vector,
+                    limit=1,
+                    score_threshold=score_threshold,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                results = res.points
+            else:
+                results = self.client.search(
+                    collection_name=collection_name,
+                    query_vector=query_vector,
+                    limit=1,
+                    score_threshold=score_threshold,
+                    with_payload=True,
+                    with_vectors=False
+                )
+
+            if results:
+                best_match = results[0]
+                return {
+                    "matched_query": best_match.payload.get("query_text", ""),
+                    "classification": best_match.payload.get("classification", {}),
+                    "similarity_score": round(float(best_match.score), 4),
+                }
+            return None
+            
+        except Exception as e:
+            logger.error("Error searching cache collection '%s': %s", collection_name, e)
+            return None

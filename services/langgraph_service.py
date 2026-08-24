@@ -29,6 +29,7 @@ class LangGraphService:
     """
 
     def __init__(self):
+
         self.qdrant_service = QdrantService()
         self.tavily_client = TavilyClient(api_key=settings.TAVILY_API_KEY)
         self.graph = self._create_graph()
@@ -51,7 +52,7 @@ class LangGraphService:
             # Step 2: Run web search and LLM classification concurrently
             with ThreadPoolExecutor(max_workers=2) as executor:
                 web_future = executor.submit(self._run_web_search, state.user_query)
-                classify_future = executor.submit(
+                classify_future = executor.submit(                                     #submit() Use when you want more control over individual tasks.
                     openai_service.classify_query,
                     state.user_query,
                     state.query_embedding,

@@ -19,3 +19,4 @@ python-dotenv
 pydantic_settings
 langgraph
 tavily
+redis

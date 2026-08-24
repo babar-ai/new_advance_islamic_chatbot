@@ -1,0 +1,53 @@
+*2
+$6
+SELECT
+$1
+0
+*5
+$3
+SET
+$25
+exact_cache:what is islam
+$243
+{"required_sources":["general_islamic_info"],"reasoning":"The query seeks an overview or general explanation of Islam, which is best answered through general Islamic knowledge sources covering history, beliefs, and practices of the religion."}
+$4
+PXAT
+$13
+1788720021909
+*5
+$3
+SET
+$33
+exact_cache:what is mean by islam
+$212
+{"required_sources":["general_islamic_info"],"reasoning":"The question asks for the meaning of Islam, which is general knowledge about Islamic faith and principles best addressed by general Islamic information."}
+$4
+PXAT
+$13
+1788720592583
+*5
+$3
+SET
+$63
+exact_cache:what did prophet muhammad says about porn addiction
+$239
+{"required_sources":["hadith"],"reasoning":"The question pertains to Prophet Muhammad's sayings about a specific moral and behavioral issue, which is typically addressed through the hadith literature containing his sayings and teachings."}
+$4
+PXAT
+$13
+1788758130069
+*2
+$3
+DEL
+$33
+exact_cache:what is mean by islam
+*2
+$3
+DEL
+$25
+exact_cache:what is islam
+*2
+$3
+DEL
+$63
+exact_cache:what did prophet muhammad says about porn addiction
