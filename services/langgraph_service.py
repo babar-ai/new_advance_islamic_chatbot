@@ -31,7 +31,18 @@ class LangGraphService:
     def __init__(self):
 
         self.qdrant_service = QdrantService()
-        self.tavily_client = TavilyClient(api_key=settings.TAVILY_API_KEY)
+
+        # Tavily is optional — gracefully disabled if key is missing
+        self.tavily_client = None
+        if settings.TAVILY_API_KEY:
+            try:
+                self.tavily_client = TavilyClient(api_key=settings.TAVILY_API_KEY)
+                logger.info("Tavily web search client initialized.")
+            except Exception as e:
+                logger.warning("Tavily client failed to initialize: %s. Web search disabled.", e)
+        else:
+            logger.warning("TAVILY_API_KEY not set — web search is disabled.")
+
         self.graph = self._create_graph()
 
 

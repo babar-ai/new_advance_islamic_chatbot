@@ -1,149 +1,72 @@
 
-from fastapi import FastAPI, APIRouter, HTTPException
-from fastapi.staticfiles import StaticFiles
-
-
-from core.config import settings
-from core.app_logging import configure_logging
-from services.groq_service import groq_service
-from services.open_ai_service import openai_service
-from schemas.routes.text_query import TextQuerySchema
-from voice_assistant_chatbot.routes.voice_routes import AudioQuerySchema
-from services.langgraph_service import LanggraphService
-from services.deepL_service import Deepl_Service
-from voice_assistant_chatbot.stt import speech_to_text
-from voice_assistant_chatbot.tts import tts_service
-
-configure_logging()
 import logging
+import os
 
-application = FastAPI()
+from fastapi import FastAPI, HTTPException
 
-application.mount("/static", StaticFiles(directory="static"), name="static")
+from schemas.routes.text_query import TextQuerySchema
+from services.langgraph_service import LangGraphService
+from utils.config import settings
+from utils.custom_logger import setup_logger
 
+logger = setup_logger(__name__)
 
-qdrant_configs = {
-    "quran": {
-        "url": settings.QURAN_QDRANT_URL,
-        "api_key": settings.QURAN_QDRANT_API_KEY,
-        "collection": settings.QURAN_COLLECTION_NAME
-    },
-    "hadith": {
-        "url": settings.HADITH_QDRANT_URL,
-        "api_key": settings.HADITH_QDRANT_API_KEY,
-        "collection": settings.HADITH_COLLECTION_NAME
-    },
-    "tafseer": {
-        "url": settings.TAFSEER_QDRANT_URL,
-        "api_key": settings.TAFSEER_QDRANT_API_KEY,
-        "collection": settings.TAFSEER_COLLECTION_NAME
-    },
-    "general_islamic_info": {
-        "url": settings.GENERAL_ISLAMIC_INFO_URL,
-        "api_key": settings.GENERAL_ISLAMIC_INFO_KEY,
-        "collection": settings.ISLAMIC_INFO_COLLECTION_NAME
-    }
-}
+# ── LangSmith Tracing Setup ───────────────────────────────────────────────────
+# LangGraph traces all nodes automatically when these env vars are set.
+if settings.langsmith_enabled:
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGCHAIN_API_KEY"] = settings.LANGCHAIN_API_KEY
+    os.environ["LANGCHAIN_PROJECT"] = settings.LANGCHAIN_PROJECT
+    logger.info("LangSmith tracing ENABLED → project: '%s'", settings.LANGCHAIN_PROJECT)
+else:
+    logger.info("LangSmith tracing DISABLED (set LANGCHAIN_API_KEY in .env to enable)")
 
-langgraph_service = LanggraphService(qdrant_configs)
-deepl_services = Deepl_Service()
+# ── App Setup ─────────────────────────────────────────────────────────────────
+application = FastAPI(
+    title="Islamic Knowledge Chatbot API",
+    description="An AI-powered chatbot answering Islamic questions using Quran, Hadith, Tafsir, and General Islamic sources.",
+    version=settings.VERSION,
+)
 
+# ── Service Initialization ─────────────────────────────────────────────────────
+langgraph_service = LangGraphService()
 
+# ── Routes ─────────────────────────────────────────────────────────────────────
 
 @application.get("/")
-async def main():
-    return {"Version": settings.VERSION}
+async def health_check():
+    """Health check — returns API version."""
+    return {"status": "ok", "version": settings.VERSION}
 
 
-
-
-
-@application.post('/text_query')
-async def process_text_query(request: TextQuerySchema):  
-    """Process user text query and return Islamic chatbot response"""
+@application.post("/text_query")
+async def process_text_query(request: TextQuerySchema):
+    """
+    Process a user's Islamic text query through the full LangGraph pipeline:
+        classify_and_search → parallel_retrieve → generate_response
+    """
     user_input = request.query.strip()
-    logging.info(f"Received user query: {user_input}")
+    logger.info("Received text query: %s", user_input[:80])
 
     try:
-        translation_result = deepl_services.detect_and_translate_query(user_input)
-        logging.info(f"Translation result: {translation_result}")
-        
-        if translation_result.get("status") != "success":
-            logging.error("Language detection or translation failed.")
-            raise HTTPException(status_code=400, detail="Language detection or translation failed.")
-        
-        
-        processed_query =  translation_result["processed_query"]
-        detected_lang =  translation_result["detected_language"]
-        
-        logging.info(f"Processed query inside Application.py : {processed_query}")
-        logging.info(f"Detected language inside application.py : {detected_lang}")
-        
-        #query to llm
-        llm_response = langgraph_service.query(processed_query, detected_lang)
-        
+        llm_response = langgraph_service.query(user_input)
+
         if not llm_response:
-            logging.error("LLM response generation failed.")
-            raise HTTPException(status_code=500, detail="Failed to generate LLM response.")
-        
+            logger.error("LLM returned an empty response.")
+            raise HTTPException(status_code=500, detail="Failed to generate a response.")
+
         return {
             "status": "success",
-            "message": llm_response }
+            "query": user_input,
+            "message": llm_response,
+        }
 
-
+    except HTTPException:
+        raise
 
     except Exception as e:
-    
+        logger.error("Unexpected error in /text_query: %s", e)
         return {
             "status": "error",
-            "message": f"Error processing query: {str(e)}"
+            "message": f"Error processing query: {str(e)}",
         }
-
-
-
-@application.post('/audio_query')
-async def process_audio_query(request: AudioQuerySchema):
-    """Process user audio query and return Islamic chatbot response"""    
-
-    try:
-        # Speech to text
-        transcription_response = await speech_to_text(request)
-        if transcription_response["status"] == "error":
-            return transcription_response
-
-        query = transcription_response["text"]
-        
-        # Translate query
-        translation_result = deepl_services.detect_and_translate_query(query)
-
-        if translation_result.get("status") != "success":
-            return {"success": False, "message": "Translation failed"}
-
-        processed_query = translation_result["processed_query"]
-        detected_lang = translation_result["detected_language"]
-        
-        # Get LLM response
-        llm_response = langgraph_service.query(processed_query, detected_lang)
-
-        if not llm_response:
-            return {"success": False, "message": "Failed to generate response"}
-           
-        # Translate response back
-        final_response = deepl_services.translate_response(llm_response, detected_lang)
-
-        # Generate audio
-        audio_result = tts_service.text_to_speech(final_response)
-        
-    
-        
-        return {
-            "success": True,
-            "query_text": query,
-            "response": final_response,
-            "voice_responses_dir": audio_result["voice_output_path"],
-            "filename": audio_result["filename"],
-        }
-
-    except Exception as e:
-        return {"success": False, "message": f"Error: {str(e)}"}
-

@@ -1,38 +1,61 @@
+# ==============================================================================
 # Python Virtual Environments
+# ==============================================================================
 .venv/
 venv/
 env/
 ENV/
+*.venv
 
-# Python Cache & Compiled Files
+# ==============================================================================
+# Python Cache & Bytecode
+# ==============================================================================
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
-.mypy_cache/
+*.py[cod]
+*$py.class
+*.pytest_cache/
+*.mypy_cache/
+*.ruff_cache/
 
-# Local Vector Storage (Qdrant Docker data)
-qdrant_storage/
-qdrant_data/
-
-# Application Logs
-logs/
-*.log
-
-# Environment & Secret Files
+# ==============================================================================
+# Secrets & Environment Variables (CRITICAL: NEVER COMMIT TO GIT)
+# ==============================================================================
 .env
-.env.local
+.env.*
+!.env.example
 *.env
 
-# IDE & Editor Settings
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# ==============================================================================
+# Local Databases & Vector Storage Data
+# ==============================================================================
+qdrant_storage/
+qdrant_data/
+/backend/vector_store/storage
+redis_data/
+*.rdb
+
+# ==============================================================================
+# Application Logs & Evaluation Run Outputs
+# ==============================================================================
+logs/
+*.log
+evaluation/results/*.csv
+evaluation/results/*.json
+
+# ==============================================================================
+# IDE, Editor & OS Files
+# ==============================================================================
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS Generated Files
 .DS_Store
 Thumbs.db
+desktop.ini
 
-/backend/vector_store/storage
+# Agents / IDE Internal State
+.agents/
+.gemini/

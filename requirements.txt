@@ -20,3 +20,8 @@ pydantic_settings
 langgraph
 tavily
 redis
+
+# ── Observability & Evaluation ────────────────────────────────────────
+langsmith                    # LangSmith tracing + feedback client
+ragas==0.2.15              # RAG evaluation metrics — pinned for langchain-community compatibility
+datasets                     # HuggingFace datasets — required by ragas

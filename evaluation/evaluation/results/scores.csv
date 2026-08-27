@@ -1,0 +1,6 @@
+timestamp,question,faithfulness,answer_relevancy,context_precision,contexts_count,sources_used,latency_ms,error,answer
+2026-08-27T19:26:52.912013,why there are 5 prayers in islam?,,,,22,"quran, hadith, general_islamic_info",13932.741900032852,,"📖 **Quranic Guidance:**
+The sources mention that Allah has ordained five obligatory prayers for Muslims as part of their worship and obedience. One of the key Quranic references is in Surah Al-Baqarah..."
+2026-08-27T19:58:41.923651,why interest rate is haram in islam according to quran and hadith.,,,,22,"quran, hadith, general_islamic_info",18544.505800004117,,"📖 **Quranic Guidance:**
+The Quran explicitly mentions the prohibition of dealing with interest (riba). One of the clear verses is in Surah Al-Baqarah:
+> Arabic: **""ٱلَّذِينَ يَأْكُلُونَ ٱلرِّبَٰواْ لا..."

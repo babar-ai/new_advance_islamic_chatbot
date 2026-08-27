@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
 
+    # ── LangSmith Observability ───────────────────────────────────────────────
+    LANGCHAIN_TRACING_V2: str = "false"
+    LANGCHAIN_API_KEY: str = ""
+    LANGCHAIN_PROJECT: str = "islamic-chatbot"
+
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parent.parent / ".env",
         env_file_encoding="utf-8",
@@ -55,6 +60,15 @@ class Settings(BaseSettings):
             "tafseer": self.TAFSEER_COLLECTION_NAME,
             "general_islamic_info": self.ISLAMIC_INFO_COLLECTION_NAME,
         }
+
+    @property
+    def langsmith_enabled(self) -> bool:
+        """Returns True if LangSmith tracing is configured and enabled."""
+        return (
+            self.LANGCHAIN_TRACING_V2.lower() == "true"
+            and bool(self.LANGCHAIN_API_KEY)
+            and self.LANGCHAIN_API_KEY != ""
+        )
 
 
 settings = Settings()
