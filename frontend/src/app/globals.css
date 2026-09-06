@@ -1,0 +1,339 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+@variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --background: #fbfbf9;
+  --foreground: #1e293b;
+  --primary-green: #084c3e;
+  --primary-green-hover: #063b30;
+  --light-green: #eaf4ee;
+  --light-green-hover: #e0eee5;
+  --card-bg: #ffffff;
+  --border-subtle: #e5e7eb;
+}
+
+.dark {
+  --background: #090d16;
+  --foreground: #f1f5f9;
+  --primary-green: #10b981;
+  --primary-green-hover: #059669;
+  --light-green: #064e3b;
+  --light-green-hover: #042f2e;
+  --card-bg: #0f172a;
+  --border-subtle: #1e293b;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Traditional Arabic", "Amiri", sans-serif;
+  overflow-x: hidden;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Dedicated Arabic Typography with Amiri font and full diacritic support */
+.font-arabic {
+  font-family: var(--font-amiri), "Amiri", "Traditional Arabic", "Scheherazade New", "Noto Naskh Arabic", serif;
+  direction: rtl;
+  line-height: 2.2;
+  letter-spacing: 0.02em;
+}
+
+/* Dedicated Sacred Scripture / Verse / Hadith Typography (Serif & Italic) */
+.font-verse {
+  font-family: var(--font-lora), "Lora", Georgia, Cambria, "Times New Roman", Times, serif;
+  font-style: italic;
+}
+
+/* Dedicated Source Citation Typography (Sans-Serif, Upright, Tagged) */
+.font-source {
+  font-family: var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-style: normal !important;
+}
+
+/* Dedicated Arabic Verse Card Styling */
+.arabic-verse-box {
+  background: #f7faf8;
+  border: 1px solid rgba(8, 76, 62, 0.15);
+  border-radius: 0.875rem;
+  padding: 1.1rem 1.35rem;
+  margin: 1.25rem 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.dark .arabic-verse-box {
+  background: rgba(6, 78, 59, 0.2);
+  border-color: rgba(16, 185, 129, 0.25);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Dedicated Source Citation Badge - Distinct from verse/Hadith fonts */
+.source-citation-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  margin-top: 0.35rem;
+  margin-bottom: 0.85rem;
+  background-color: #eaf4ee;
+  border: 1px solid #c2e2d0;
+  border-radius: 0.625rem;
+  color: #084c3e;
+  font-family: var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-style: normal !important;
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.015em;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  transition: all 0.15s ease-in-out;
+}
+
+.source-citation-badge:hover {
+  background-color: #dfede5;
+  border-color: #a3d4ba;
+}
+
+.dark .source-citation-badge {
+  background-color: rgba(6, 78, 59, 0.45);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #6ee7b7;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.dark .source-citation-badge:hover {
+  background-color: rgba(6, 78, 59, 0.65);
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+/* Custom Sleek Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #084c3e;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #10b981;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Markdown Styling Inside Assistant Message Bubbles (Light Mode)
+   ───────────────────────────────────────────────────────────── */
+.prose-islamic {
+  color: #1e293b;
+  font-size: 0.95rem;
+  line-height: 1.8;
+}
+
+/* Spacious, distinct section headings */
+.prose-islamic h1,
+.prose-islamic h2,
+.prose-islamic h3,
+.prose-islamic h4 {
+  color: #084c3e;
+  font-weight: 700;
+  margin-top: 1.75rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  letter-spacing: -0.01em;
+}
+
+.prose-islamic h1 {
+  font-size: 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.4rem;
+}
+
+.prose-islamic h2 {
+  font-size: 1.15rem;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.35rem;
+}
+
+.prose-islamic h3 {
+  font-size: 1.05rem;
+}
+
+/* Generous paragraph spacing */
+.prose-islamic p {
+  margin-bottom: 1.25rem;
+  color: #334155;
+  line-height: 1.8;
+}
+
+.prose-islamic p:last-child {
+  margin-bottom: 0;
+}
+
+.prose-islamic strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.prose-islamic em {
+  color: #475569;
+  font-style: italic;
+}
+
+/* Spacious bullet and numbered lists */
+.prose-islamic ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-top: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.prose-islamic ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-top: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.prose-islamic li {
+  margin-bottom: 0.5rem;
+  color: #334155;
+  line-height: 1.7;
+}
+
+.prose-islamic li::marker {
+  color: #084c3e;
+  font-weight: bold;
+}
+
+/* Blockquotes for Quran & Hadith citations with distinct padding & border */
+.prose-islamic blockquote {
+  border-left: 4px solid #084c3e;
+  padding: 1rem 1.35rem;
+  margin-top: 1.25rem;
+  margin-bottom: 1.25rem;
+  background-color: #f7faf8;
+  border-radius: 0 0.875rem 0.875rem 0;
+  color: #1e293b;
+  font-family: var(--font-lora), "Lora", Georgia, Cambria, serif;
+  font-style: italic;
+  font-size: 1.025rem;
+  line-height: 1.85;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.prose-islamic blockquote p {
+  margin-bottom: 0.6rem;
+  font-family: var(--font-lora), "Lora", Georgia, Cambria, serif;
+  font-style: italic;
+  color: #1e293b;
+}
+
+.prose-islamic blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* Inline code and blocks */
+.prose-islamic code {
+  background-color: #f1f5f9;
+  color: #084c3e;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.35rem;
+  font-size: 0.88em;
+  font-weight: 500;
+}
+
+.prose-islamic pre {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  overflow-x: auto;
+  margin-top: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.prose-islamic hr {
+  border: 0;
+  border-top: 1px solid #e2e8f0;
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Markdown Styling Inside Assistant Message Bubbles (Dark Mode)
+   ───────────────────────────────────────────────────────────── */
+.dark .prose-islamic {
+  color: #f1f5f9;
+}
+
+.dark .prose-islamic h1,
+.dark .prose-islamic h2,
+.dark .prose-islamic h3,
+.dark .prose-islamic h4 {
+  color: #34d399;
+  border-color: #1e293b;
+}
+
+.dark .prose-islamic p {
+  color: #cbd5e1;
+}
+
+.dark .prose-islamic strong {
+  color: #f8fafc;
+}
+
+.dark .prose-islamic em {
+  color: #94a3b8;
+}
+
+.dark .prose-islamic li {
+  color: #cbd5e1;
+}
+
+.dark .prose-islamic li::marker {
+  color: #10b981;
+}
+
+.dark .prose-islamic blockquote {
+  border-left: 4px solid #10b981;
+  background-color: rgba(6, 78, 59, 0.22);
+  color: #e2e8f0;
+  font-family: var(--font-lora), "Lora", Georgia, Cambria, serif;
+  font-style: italic;
+}
+
+.dark .prose-islamic blockquote p {
+  color: #e2e8f0;
+  font-family: var(--font-lora), "Lora", Georgia, Cambria, serif;
+  font-style: italic;
+}
+
+.dark .prose-islamic code {
+  background-color: #1e293b;
+  color: #6ee7b7;
+}
+
+.dark .prose-islamic pre {
+  background-color: #0f172a;
+  border-color: #1e293b;
+}
+
+.dark .prose-islamic hr {
+  border-color: #1e293b;
+}

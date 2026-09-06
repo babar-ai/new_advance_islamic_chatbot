@@ -38,6 +38,7 @@ class QdrantService:
         self.client = QdrantClient(
             url=self.qdrant_url,
             api_key=self.qdrant_api_key or None,
+            timeout=10,
         )
     
         logger.info("Connected to Qdrant successfully.")

@@ -1,0 +1,45 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Git
+.git/
+.gitignore
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pytest_cache/
+
+# Local data volumes (mounted via docker-compose, not baked into image)
+qdrant_storage/
+qdrant_data/
+redis_data/
+
+# Logs (created at runtime)
+logs/
+
+# Evaluation results
+evaluation/results/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Secrets — injected via docker-compose env_file, never baked in
+.env
+.env.*
+
+# LangGraph Studio local state
+.langgraph_api/
+.agents/
+.gemini/
+
+# Demo / docs
+demo_app.py
+linkedin_demo_script.md
+workflows/
+README.md

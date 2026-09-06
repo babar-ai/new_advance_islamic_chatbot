@@ -3,14 +3,9 @@ langchain-community          # DirectoryLoader, TextLoader, and other loaders
 langchain-core               # Document, BaseLoader base classes
 langchain-text-splitters     # RecursiveCharacterTextSplitter for chunking
 
-# ── Embeddings ────────────────────────────────────────────────────────
-langchain-huggingface        # HuggingFaceEmbeddings wrapper
-sentence-transformers        # The actual embedding models (e.g. all-MiniLM, paraphrase
-
 # ── Vector Database ───────────────────────────────────────────────────
 langchain-qdrant             # LangChain ↔ Qdrant integration
 qdrant-client                # Direct Qdrant Python client (REST + gRPC)
-FlagEmbedding
 
 # ── OpenAI & Environment ──────────────────────────────────────────────
 langchain-openai
@@ -25,3 +20,12 @@ redis
 langsmith                    # LangSmith tracing + feedback client
 ragas==0.2.15              # RAG evaluation metrics — pinned for langchain-community compatibility
 datasets                     # HuggingFace datasets — required by ragas
+
+langgraph-cli[inmem]
+
+fastapi-limiter==0.1.6       # Pinned — v0.2 broke the FastAPILimiter.init() API
+fastapi
+uvicorn[standard]
+httpx
+cachetools
+numpy

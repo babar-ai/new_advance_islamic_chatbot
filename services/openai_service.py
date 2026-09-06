@@ -20,17 +20,19 @@ logger = setup_logger(__name__)
 class OpenAIService:
     """Handles all OpenAI interactions: classification, embedding, and response generation."""
 
-    def __init__(self):
+    def __init__(self, qdrant_service: Optional[QdrantService] = None):
 
         self.llm = ChatOpenAI(
             model=settings.LLM_MODEL,
-            api_key=settings.OPENAI_API_KEY
+            api_key=settings.OPENAI_API_KEY,
+            timeout=45,
+            max_retries=2,
         )
         self.embeddings = OpenAIEmbeddings(
             model=settings.EMBEDDING_MODEL,
             openai_api_key=settings.OPENAI_API_KEY
         )
-
+ 
         # In-memory fallback caches
         self._classification_cache = TTLCache(maxsize=500, ttl=3600)  
         self._semantic_cache: List[tuple] = []
@@ -39,23 +41,34 @@ class OpenAIService:
 
         # Initialize Redis connection (Layer 1)
         self.redis_client = None
+
+
         try:
             r = redis.Redis(
                 host=settings.REDIS_HOST,
                 port=settings.REDIS_PORT,
                 password=settings.REDIS_PASSWORD or None,
                 decode_responses=True,
-                socket_timeout=2.0
+                socket_connect_timeout=2.0,
+                socket_timeout=2.0,
+                max_connections=50                                # added new connection pool
             )
+
             r.ping()
-            self.redis_client = r
+            self.redis_client = r       # The Python Redis client normally uses a connection pool internally.
             logger.info("Connected to Redis at %s:%d successfully.", settings.REDIS_HOST, settings.REDIS_PORT)
+
         except Exception as e:
             logger.warning("Redis not available (%s). Layer 1 will fallback to in-memory cache.", e)
 
+
         # Initialize Qdrant Service (Layer 2)
         try:
-            self.qdrant_service = QdrantService()
+            if qdrant_service is None:
+                self.qdrant_service = QdrantService()
+            else:
+                self.qdrant_service = qdrant_service
+                
         except Exception as e:
             self.qdrant_service = None
             logger.warning("Qdrant service connection warning for caching: %s", e)
@@ -159,6 +172,7 @@ class OpenAIService:
             except Exception as e:
                 logger.warning("Failed to save vector cache to Qdrant: %s", e)
 
+
     def classify_query(self, query: str, query_embedding: Optional[List[float]] = None) -> dict:
         """
         Classify a query to determine which Islamic sources to search.
@@ -186,6 +200,7 @@ class OpenAIService:
             self._write_to_caches(query, query_embedding, classification)
 
         return result
+
 
     def classify_query_with_metadata(self, query: str, query_embedding: Optional[List[float]] = None) -> dict:
         """
@@ -244,11 +259,9 @@ class OpenAIService:
         return {"status": "error", "message": result["message"]}
 
 
-
     def embed_query(self, query: str) -> List[float]:
         """Embed a query string into a vector. Called once per request."""
         return self.embeddings.embed_query(query)
-
 
 
     def generate_response(self, query: str, context: str) -> dict:
@@ -256,6 +269,25 @@ class OpenAIService:
         prompt = ENGLISH_RESPONSE_PROMPT.replace("{context}", context)
         return self._process_request(prompt, query, schema=None)
 
+
+    async def generate_response_stream(self, query: str, context: str):
+        """
+        Async generator that streams the LLM response token-by-token.
+        Uses ChatOpenAI.astream() which yields AIMessageChunk objects.
+        Each yielded value is a string token fragment.
+        """
+        prompt = ENGLISH_RESPONSE_PROMPT.replace("{context}", context)
+        messages = [
+            SystemMessage(content=prompt),
+            HumanMessage(content=query),
+        ]
+        try:
+            async for chunk in self.llm.astream(messages):
+                if chunk.content:
+                    yield chunk.content
+        except Exception as e:
+            logger.error(f"Error in generate_response_stream: {e}")
+            yield f"\n\n[Error: {str(e)}]"
 
 
     def _process_request(self, prompt: str, text: str, schema=None) -> dict:
@@ -280,7 +312,6 @@ class OpenAIService:
             return {"status": "error", "message": f"Error processing request: {e}"}
 
 
-
     @staticmethod
     def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
         """Compute cosine similarity between two vectors."""
@@ -293,5 +324,3 @@ class OpenAIService:
         return float(dot / norm)
 
 
-# Module-level singleton instance
-openai_service = OpenAIService()
