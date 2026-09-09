@@ -67,7 +67,7 @@ class LangGraphService:
     # ─────────────────────────────────────────────────────────
     # Node 1: Classify user query + web search (concurrent)
     # ─────────────────────────────────────────────────────────
-    @traceable(name="classify_and_search", run_type="tool")
+
     def _classify_and_search(self, state: LangGraphState) -> LangGraphState:
         """
         First node: Embeds the query once, then runs web search and
@@ -111,7 +111,7 @@ class LangGraphService:
     # ─────────────────────────────────────────────────────────
     # Node 2: Parallel retrieval from all required sources
     # ─────────────────────────────────────────────────────────
-    @traceable(name="parallel_retrieve", run_type="retriever")
+    
     def _parallel_retrieve(self, state: LangGraphState) -> LangGraphState:
         """
         Second node: Dispatches Qdrant searches for all required sources
