@@ -12,6 +12,9 @@ from services.openai_service import OpenAIService
 from utils.config import settings
 from utils.custom_logger import setup_logger
 
+from langsmith import traceable
+
+
 logger = setup_logger(__name__)
 
 
@@ -64,6 +67,7 @@ class LangGraphService:
     # ─────────────────────────────────────────────────────────
     # Node 1: Classify user query + web search (concurrent)
     # ─────────────────────────────────────────────────────────
+    @traceable(name="classify_and_search", run_type="tool")
     def _classify_and_search(self, state: LangGraphState) -> LangGraphState:
         """
         First node: Embeds the query once, then runs web search and
@@ -107,6 +111,7 @@ class LangGraphService:
     # ─────────────────────────────────────────────────────────
     # Node 2: Parallel retrieval from all required sources
     # ─────────────────────────────────────────────────────────
+    @traceable(name="parallel_retrieve", run_type="retriever")
     def _parallel_retrieve(self, state: LangGraphState) -> LangGraphState:
         """
         Second node: Dispatches Qdrant searches for all required sources
@@ -208,12 +213,14 @@ class LangGraphService:
 
 
     # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────
     # Node 3: Assemble context and generate final response
     # ─────────────────────────────────────────────────────────
-    def _generate_response(self, state: LangGraphState) -> LangGraphState:
+    async def _generate_response(self, state: LangGraphState) -> LangGraphState:
         """
         Third node: Compiles all retrieved documents + web search results 
-        into a single context string and calls LLM for the final response.
+        into a single context string and calls LLM asynchronously for the final response.
+        Enables LangGraph native astream to capture token chunks.
         """
         try:
             if state.error_message and not state.retrieved_documents:
@@ -226,8 +233,8 @@ class LangGraphService:
                 state.final_response = "I could not find relevant information in the Islamic knowledge base for your query. Please try rephrasing your question or consult a qualified Islamic scholar."
                 return state
 
-            logger.info("Generating final response from LLM...")
-            response = self.openai_service.generate_response(state.user_query, full_context)
+            logger.info("Generating final response from LLM via agenerate_response...")
+            response = await self.openai_service.agenerate_response(state.user_query, full_context)
 
             if response["status"] == "success":
                 state.final_response = response["message"]
@@ -247,6 +254,7 @@ class LangGraphService:
     # ─────────────────────────────────────────────────────────
     # Helper: Web search via Tavily
     # ─────────────────────────────────────────────────────────
+    @traceable(name="run_web_search", run_type="tool")
     def _run_web_search(self, query: str) -> list:
         """Run Tavily web search. Returns list of dicts with content/url/title."""
         try:
@@ -303,73 +311,86 @@ class LangGraphService:
 
 
     # ─────────────────────────────────────────────────────────
-    # Public API: process a user query end-to-end (synchronous)
+    # Public API: process a user query end-to-end
     # ─────────────────────────────────────────────────────────
-    def query(self, user_query: str) -> str:
+    async def aquery(self, user_query: str) -> str:
         """
-        Main entry point — processes a user query through the full pipeline.
+        Process a user query asynchronously through the full compiled LangGraph.
         Returns the generated response string.
         """
         try:
             initial_state = LangGraphState(user_query=user_query)
+            logger.info(f"Processing query asynchronously: {user_query[:80]}...")
+            final_state = await self.graph.ainvoke(initial_state)
 
-            logger.info(f"Processing query: {user_query[:80]}...")
-            final_state = self.graph.invoke(initial_state)
-
-            return final_state["final_response"]
+            if isinstance(final_state, dict):
+                return final_state.get("final_response", "")
+            return final_state.final_response
 
         except Exception as e:
-            logger.error(f"Error in query pipeline: {e}")
+            logger.error(f"Error in aquery pipeline: {e}")
             return f"I apologize, but I encountered an error: {str(e)}"
 
 
+    def query(self, user_query: str) -> str:
+        """
+        Synchronous entry point — wraps aquery.
+        """
+        try:
+            return asyncio.run(self.aquery(user_query))
+        except RuntimeError:
+            # Fallback if already inside a running loop
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                return executor.submit(asyncio.run, self.aquery(user_query)).result()
+
+
 
     # ─────────────────────────────────────────────────────────
-    # Public API: stream a user query (async generator)
+    # Public API: stream a user query via LangGraph native astream
     # ─────────────────────────────────────────────────────────
     async def query_stream(self, user_query: str):
         """
-        Async generator that yields SSE event dicts.
-        Phase 1: classify + retrieve (blocking I/O, yields status events)
-        Phase 2: stream LLM tokens one-by-one (yields token events)
-        Phase 3: yield done event with full response
+        Async generator that yields SSE event dicts using LangGraph's native astream().
+        Executes the full compiled StateGraph:
+            classify_and_search → parallel_retrieve → generate_response → END
+
+        - Mode 'updates': captures node completion events (progress updates).
+        - Mode 'messages': captures token-by-token streaming directly from the LLM node.
         """
         try:
-            logger.info(f"[STREAM] Processing query: {user_query[:80]}...")
+            logger.info(f"[STREAM] Processing query via LangGraph astream: {user_query[:80]}...")
 
-            # Phase 1: Classification + Retrieval (non-streaming I/O work)
+            # Phase 1: Initial searching status
             yield {"status": "searching", "message": "Analyzing and retrieving from Islamic sources..."}
 
             initial_state = LangGraphState(user_query=user_query)
-
-            # Run classify_and_search in a thread (it's synchronous / CPU-bound)
-            state = await asyncio.to_thread(self._classify_and_search, initial_state)
-            # Run parallel_retrieve in a thread
-            state = await asyncio.to_thread(self._parallel_retrieve, state)
-
-            # Check for errors after retrieval
-            if state.error_message and not state.retrieved_documents:
-                yield {"done": True, "full_response": f"I apologize, but I encountered an error: {state.error_message}"}
-                return
-
-            # Phase 2: Build context
-            yield {"status": "generating", "message": "Composing response..."}
-
-            full_context = self._build_context(state)
-
-            if not full_context.strip():
-                yield {"done": True, "full_response": "I could not find relevant information in the Islamic knowledge base for your query. Please try rephrasing your question or consult a qualified Islamic scholar."}
-                return
-
-            # Phase 3: Stream LLM response token-by-token
-            logger.info("[STREAM] Starting LLM token streaming...")
             full_response = ""
 
-            async for token in self.openai_service.generate_response_stream(user_query, full_context):
-                full_response += token
-                yield {"token": token, "done": False}
+            # Execute native LangGraph astream
+            async for mode, payload in self.graph.astream(
+                initial_state,
+                stream_mode=["updates", "messages"],
+            ):
+                if mode == "updates":
+                    # Transition from retrieval to generation
+                    if "parallel_retrieve" in payload:
+                        yield {"status": "generating", "message": "Composing response..."}
+                    elif "generate_response" in payload:
+                        node_state = payload["generate_response"]
+                        if isinstance(node_state, dict):
+                            full_response = node_state.get("final_response", full_response)
+                        elif hasattr(node_state, "final_response"):
+                            full_response = node_state.final_response or full_response
 
-            logger.info("[STREAM] Response streamed successfully")
+                elif mode == "messages":
+                    msg, meta = payload
+                    # Stream tokens emitted exclusively by the generate_response node
+                    if meta.get("langgraph_node") == "generate_response" and msg.content:
+                        full_response += msg.content
+                        yield {"token": msg.content, "done": False}
+
+            logger.info("[STREAM] Response streamed successfully via LangGraph native astream")
             yield {"done": True, "full_response": full_response}
 
         except Exception as e:

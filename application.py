@@ -182,10 +182,7 @@ async def process_text_query(
 
         async with asyncio.timeout(60):
 
-            llm_response = await asyncio.to_thread(                # here asyncio.to_thread() takes two args i.e the function to be executed in a separate thread and the arguments to be passed to the function.
-                langgraph_service.query,
-                user_input,                                      
-            )
+            llm_response = await langgraph_service.aquery(user_input)
 
             if not llm_response:
 

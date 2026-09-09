@@ -270,6 +270,27 @@ class OpenAIService:
         return self._process_request(prompt, query, schema=None)
 
 
+    async def agenerate_response(self, query: str, context: str) -> dict:
+        """
+        Generate the final comprehensive Islamic response asynchronously using ainvoke.
+        Enables LangGraph astream(stream_mode='messages') to stream tokens natively.
+        """
+        prompt = ENGLISH_RESPONSE_PROMPT.replace("{context}", context)
+        try:
+            messages = [
+                SystemMessage(content=prompt),
+                HumanMessage(content=query),
+            ]
+            response = await self.llm.ainvoke(messages)
+            return {
+                "status": "success",
+                "message": response.content,
+            }
+        except Exception as e:
+            logger.error(f"Error in agenerate_response: {e}")
+            return {"status": "error", "message": str(e)}
+
+
     async def generate_response_stream(self, query: str, context: str):
         """
         Async generator that streams the LLM response token-by-token.
