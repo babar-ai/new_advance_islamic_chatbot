@@ -14,3 +14,4 @@ class LangGraphState:
     retrieved_documents: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     final_response: str = ""
     error_message: Optional[str] = None
+    filters: Optional[Dict[str, Any]] = None

@@ -90,18 +90,39 @@ class LangGraphService:
             # Collect classification results
             classification_response = classify_future.result()
 
+
             if classification_response["status"] == "success":
+
                 classification = classification_response["message"]
+
                 state.required_sources = list(classification.required_sources)
+
                 state.classification_reasoning = classification.reasoning
-                logger.info(f"Classification: sources={state.required_sources}, reasoning={state.classification_reasoning}")
+
+
+                if hasattr(classification, "filters") and classification.filters:       #define filters as required output in pydantic schema
+
+                    filter_dict = classification.filters.model_dump(exclude_none=True)   # This converts your Pydantic model into a normal Python dictionary.
+
+                    state.filters = filter_dict if filter_dict else None
+
+                else:
+                    state.filters = None
+
+
+                logger.info(f"Classification: sources={state.required_sources}, reasoning={state.classification_reasoning}, filters={state.filters}")
+            
             else:
                 logger.warning(f"Classification failed: {classification_response['message']}. Falling back to general.")
+
                 state.required_sources = ["general_islamic_info"]
+
 
         except Exception as e:
             logger.error(f"Error in _classify_and_search: {e}")
+
             state.required_sources = ["general_islamic_info"]
+
             state.error_message = str(e)
 
         return state
@@ -123,39 +144,58 @@ class LangGraphService:
             return state
 
         required_sources = state.required_sources
+
         if not required_sources:
             logger.warning("No required sources identified, defaulting to general_islamic_info")
             required_sources = ["general_islamic_info"]
 
-        logger.info(f"Starting parallel retrieval for sources: {required_sources}")
+        logger.info(f"Starting parallel retrieval for sources: {required_sources}, filters: {state.filters} ")
 
         future_to_source = {}
+
         for source in required_sources:
             collection_name = settings.COLLECTION_NAMES.get(source)
+
             if not collection_name:
                 logger.warning(f"No collection configured for source: {source}")
                 continue
 
             limit = SOURCE_LIMITS.get(source, 5)
+
+            qdrant_filter = self.qdrant_service.build_qdrant_filter(collection_name, state.filters)
+
             future = self.retrival_executor.submit(
                 self.qdrant_service.search_by_vector,
                 collection_name,
-                state.query_embedding,
+                state.query_embedding, 
                 limit,
+                qdrant_filter,
             )
-            future_to_source[future] = source
+           
+            future_to_source[future] = (source, collection_name, qdrant_filter, limit)
 
         # Collect results as they complete
         for future in as_completed(future_to_source):
-            source = future_to_source[future]
+            source, collection_name, qdrant_filter, limit = future_to_source[future]
+            
             try:
                 documents = future.result()
+
+                if not documents and qdrant_filter is not None:
+                                    logger.warning(f"Filtered search returned 0 docs for '{source}'. Falling back to unfiltered vector search...")
+                                    documents = self.qdrant_service.search_by_vector(
+                                        collection_name,
+                                        state.query_embedding,
+                                        limit,
+                                        query_filter=None,
+                                    )
                 state.retrieved_documents[source] = documents
                 logger.info(f"Retrieved {len(documents)} documents from '{source}'")
+            
             except Exception as e:
                 logger.error(f"Error retrieving from '{source}': {e}")
                 state.retrieved_documents[source] = []
-
+        
         return state
 
 

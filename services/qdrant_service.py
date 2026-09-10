@@ -15,6 +15,10 @@ if str(project_root) not in sys.path:
 from utils.custom_logger import setup_logger
 from utils.config import settings
 
+
+from qdrant_client.http import models
+
+
 logger = setup_logger(__name__)
 
 
@@ -169,7 +173,7 @@ class QdrantService:
         return vector_store.similarity_search(query=query, k=limit)
 
 
-    def search_by_vector(self, collection_name: str, query_vector: List[float], limit: int = 5) -> List[dict]:
+    def search_by_vector(self, collection_name: str, query_vector: List[float], limit: int = 5,  query_filter: Optional[models.Filter] = None,) -> List[dict]:
         """
         Search using a pre-computed embedding vector — avoids redundant embed_query calls.
         Returns raw dicts with 'content', 'metadata', and 'score' keys.
@@ -177,18 +181,25 @@ class QdrantService:
         try:
             if hasattr(self.client, "query_points"):
                 res = self.client.query_points(
+
                     collection_name=collection_name,
                     query=query_vector,
                     limit=limit,
+                    query_filter=query_filter, 
+
                     with_payload=True,
                     with_vectors=False,
                 )
                 results = res.points
+
             else:
                 results = self.client.search(
+
                     collection_name=collection_name,
                     query_vector=query_vector,
                     limit=limit,
+                    query_filter=query_filter,
+
                     with_payload=True,
                     with_vectors=False,
                 )
@@ -276,3 +287,76 @@ class QdrantService:
         except Exception as e:
             logger.error("Error searching cache collection '%s': %s", collection_name, e)
             return None
+
+
+
+    def build_qdrant_filter(self, collection_name: str, filters: Optional[dict]) -> Optional[models.Filter]:
+        """
+        Builds a collection-specific Qdrant models.Filter based on the extracted metadata filters.
+        Maps fields to each collection's exact payload schema:
+          - Quran: metadata.reference ("2:153") or metadata.ayah_number (153)
+          - Tafsir: metadata.surah_number (2) and metadata.ayah_number (153)
+          - Hadith: metadata.title ("Sahih al-Bukhari")
+        """
+        if not filters:
+            return None
+
+        conditions = []
+        c_name = collection_name.lower()
+
+        # ── 1. Quran Collection ─────────────────────────────────────────────
+        if "quran" in c_name:
+            surah_num = filters.get("surah_number")
+            ayah_num = filters.get("ayah_number") if filters.get("ayah_number") is not None else filters.get("verse_number")
+
+            if surah_num is not None and ayah_num is not None:
+                ref_str = f"{surah_num}:{ayah_num}"
+                conditions.append(
+                    models.FieldCondition(
+                        key="metadata.reference",
+                        match=models.MatchValue(value=ref_str)
+                    )
+                )
+            elif ayah_num is not None:
+                conditions.append(
+                    models.FieldCondition(
+                        key="metadata.ayah_number",
+                        match=models.MatchValue(value=int(ayah_num))
+                    )
+                )
+
+        # ── 2. Tafsir Collection ────────────────────────────────────────────
+        elif "tafsir" in c_name or "tafseer" in c_name:
+            surah_num = filters.get("surah_number")
+            ayah_num = filters.get("ayah_number") if filters.get("ayah_number") is not None else filters.get("verse_number")
+
+            if surah_num is not None:
+                conditions.append(
+                    models.FieldCondition(
+                        key="metadata.surah_number",
+                        match=models.MatchValue(value=int(surah_num))
+                    )
+                )
+            if ayah_num is not None:
+                conditions.append(
+                    models.FieldCondition(
+                        key="metadata.ayah_number",
+                        match=models.MatchValue(value=int(ayah_num))
+                    )
+                )
+
+        # ── 3. Hadith Collection ───────────────────────────────────────────
+        elif "hadith" in c_name:
+            book = filters.get("hadith_book") or filters.get("hadith_book_name")
+            if book:
+                conditions.append(
+                    models.FieldCondition(
+                        key="metadata.title",
+                        match=models.MatchText(text=str(book))
+                    )
+                )
+
+        if conditions:
+            return models.Filter(must=conditions)
+
+        return None

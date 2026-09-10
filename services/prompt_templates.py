@@ -1,4 +1,6 @@
-QUERY_CLASSIFICATION_PROMPT = """You are an Islamic sources classifier. Given a user's query, determine which Islamic knowledge sources should be searched to provide the best answer.
+QUERY_CLASSIFICATION_PROMPT = """You are an Islamic sources classifier.Given a user's query:
+1. Determine which Islamic knowledge sources should be searched.
+2. Extract any specific metadata filters (Surah number, Ayah number, or Hadith book collection) if explicitly mentioned.
 
 Available sources (use these exact values):
 - quran: Quranic verses (Ayat), chapters (Surahs), direct revelations
@@ -13,13 +15,31 @@ Rules:
 
 Examples:
 - "What does Surah Al-Baqarah say about fasting?" → ["quran", "tafseer"]
-- "What did Prophet Muhammad say about charity?" → ["hadith"]
+- "What did Prophet Muhammad say about charity?" → ["hadith", "general_islamic_info"]
 - "Explain the meaning of Ayatul Kursi" → ["quran", "tafseer"]
-- "What are the five pillars of Islam?" → ["general_islamic_info"]
+- "What are the five pillars of Islam?" → ["hadith", "general_islamic_info"]
 - "Is music haram in Islam?" → ["quran", "hadith", "general_islamic_info"]
 - "Tell me about the life of Abu Bakr" → ["hadith", "general_islamic_info"]
-- "What is the ruling on combining prayers while traveling?" → ["quran", "hadith", "general_islamic_info"]
+- "What is the ruling on combining prayers while traveling?" → ["quran", "hadith","tafseer", "general_islamic_info"]
 - "What is Tafsir of Surah Al-Fatiha?" → ["quran", "tafseer"]
+
+Rules for Filters: 
+
+- If the user asks for a specific verse (e.g., "Surah 2 Ayah 153" or "2:255" or "Ayatul Kursi"), extract `surah_number` and `ayah_number`.
+  Note: Ayatul Kursi is Surah 2, Ayah 255. Surah Al-Fatiha is Surah 1. Surah Al-Ikhlas is Surah 112.
+
+- If the user asks for a specific Hadith collection (e.g., "in Bukhari" or "Sahih Muslim"), set `hadith_book` to the standard name (e.g., "Sahih al-Bukhari", "Sahih Muslim").
+- For thematic or conceptual queries without specific citations (e.g., "How to deal with grief?", "Pillars of Islam"), leave `filters` as null.
+
+Examples:
+- "What does Surah Al-Baqarah verse 153 say?" 
+  → sources: ["quran", "tafseer"], filters: {"surah_number": 2, "ayah_number": 153}
+- "Show me Ayah 2:255" 
+  → sources: ["quran", "tafseer"], filters: {"surah_number": 2, "ayah_number": 255}
+- "What did the Prophet say in Sahih Bukhari about actions and intentions?" 
+  → sources: ["hadith"], filters: {"hadith_book": "Sahih al-Bukhari"}
+- "What is the reward of patience in Islam?" 
+  → sources: ["quran", "hadith", "general_islamic_info"], filters: null
 """
 
 
