@@ -150,9 +150,16 @@ class QdrantService:
         embeddings: Any,
         batch_size: Optional[int] = None,
         force_recreate: Optional[bool] = None,
+        vector_name: Optional[str] = None,
     ) -> None:
+        """
+        Embeds document chunks in batches and auto-resumes from last uploaded point if interrupted.
 
-        """Embeds document chunks in batches and auto-resumes from last uploaded point if interrupted."""
+        Args:
+            vector_name: Optional named vector field to use. Pass "dense" when the collection
+                         was created with named vectors (hybrid schema). Leave None for legacy
+                         dense-only collections that use the default unnamed vector.
+        """
         if not chunks:
             logger.warning("No chunks to upload for '%s', skipping.", collection_name)
             return
@@ -187,7 +194,7 @@ class QdrantService:
                 current_batch_num, total_batches, i + 1, min(i + batch_sz, total_chunks), total_chunks, collection_name
             )
 
-            QdrantVectorStore.from_documents(
+            kwargs = dict(
                 documents=batch,
                 embedding=embeddings,
                 url=self.qdrant_url,
@@ -195,6 +202,12 @@ class QdrantService:
                 collection_name=collection_name,
                 force_recreate=False,
             )
+            # When collection uses named dense vector (hybrid schema), we must tell
+            # QdrantVectorStore which vector field to write into.
+            if vector_name:
+                kwargs["vector_name"] = vector_name
+
+            QdrantVectorStore.from_documents(**kwargs)
 
         logger.info("✅ Upload complete for '%s' (Total points in Qdrant: %d)", collection_name, self.client.get_collection(collection_name).points_count)
 

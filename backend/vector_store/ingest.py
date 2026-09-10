@@ -255,8 +255,18 @@ if __name__ == "__main__":
                 batch_size=settings.BATCH_SIZE,
             )
         else:
-            logger.info("Using DENSE-ONLY ingestion for '%s' ...", collection_name)
-            qdrant_service.embed_and_upload(chunks, collection_name, dense_embeddings)
+            # When HYBRID_SEARCH_ENABLED=True, the collection was created with a named
+            # "dense" vector. We MUST pass vector_name="dense" so QdrantVectorStore
+            # writes into the correct named field instead of the default unnamed vector.
+            vec_name = "dense" if settings.HYBRID_SEARCH_ENABLED else None
+            logger.info(
+                "Using DENSE-ONLY ingestion for '%s' (vector_name=%s) ...",
+                collection_name, vec_name,
+            )
+            qdrant_service.embed_and_upload(
+                chunks, collection_name, dense_embeddings,
+                vector_name=vec_name,
+            )
 
         summary[engine_name] = {"raw": len(raw_docs), "chunks": len(chunks)}
 
