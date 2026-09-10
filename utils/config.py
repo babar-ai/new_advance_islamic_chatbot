@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     ISLAMIC_INFO_COLLECTION_NAME: str = "general_islamic_info"
     CLASSIFICATION_CACHE_COLLECTION_NAME: str = "classification_cache"
 
+    # Hybrid Search Settings
+    # SPARSE_VECTOR_NAME: the field name for BM25 sparse vectors stored in Qdrant collections.
+    # Must match the name used during ingestion. Do NOT change after ingestion without re-indexing.
+    SPARSE_VECTOR_NAME: str = "sparse"
+    # HYBRID_SEARCH_ENABLED: when True, retrieval uses dense + sparse RRF fusion.
+    # Set to False to fall back to pure semantic (dense-only) search without re-ingestion.
+    HYBRID_SEARCH_ENABLED: bool = True
+
 
     # Redis Connection & Caching Settings (Layer 1)
     REDIS_HOST: str = "localhost"

@@ -2,6 +2,12 @@
 Main Ingestion Orchestrator for the Islamic AI Chatbot.
 Loads documents, splits general text books into chunks, creates Qdrant collections,
 and uploads vector embeddings across all query engines with batching and auto-resume.
+
+When settings.HYBRID_SEARCH_ENABLED=True, this script:
+  1. Creates each collection with BOTH a named dense vector config ("dense") AND a
+     sparse vector config (settings.SPARSE_VECTOR_NAME) for BM25 hybrid search.
+  2. Computes BM25 sparse vectors for every document chunk using fastembed's BM25 model.
+  3. Uploads dense + sparse vectors together using qdrant_client.upsert() with PointStruct.
 """
 
 import sys
@@ -14,7 +20,8 @@ if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
 
 
 from pathlib import Path
-from typing import List, Any
+from typing import List, Any, Optional
+import uuid
 
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
@@ -33,7 +40,10 @@ from document_loader import preprocess_docs, split_documents
 logger = setup_logger(__name__)
 
 
-# Legacy wrapper functions delegating to QdrantService
+# ─────────────────────────────────────────────────────────────────────
+# Legacy wrapper functions (kept for backwards compatibility)
+# ─────────────────────────────────────────────────────────────────────
+
 def setup_qdrant_collection(client: Any, collection_name: str) -> None:
     """Delegates collection setup to QdrantService."""
     qdrant_service = QdrantService()
@@ -51,6 +61,128 @@ def embed_and_upload(
     qdrant_service.embed_and_upload(chunks, collection_name, embeddings)
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Hybrid ingestion: dense + sparse vectors uploaded together
+# ─────────────────────────────────────────────────────────────────────
+
+def hybrid_embed_and_upload(
+    qdrant_service: QdrantService,
+    chunks: List[Document],
+    collection_name: str,
+    dense_embeddings: Any,
+    bm25_model: Any,
+    batch_size: int = 200,
+) -> None:
+    """
+    Embeds all chunks with both dense (OpenAI) and sparse (BM25) vectors,
+    then upserts them into the Qdrant collection using PointStruct.
+
+    Each point is stored with:
+      - vectors={"dense": <openai_embedding>}
+      - sparse_vectors={settings.SPARSE_VECTOR_NAME: SparseVector(indices, values)}
+      - payload={"page_content": ..., "metadata": ...}
+
+    Args:
+        qdrant_service:   QdrantService instance for direct client access.
+        chunks:           List of LangChain Documents to ingest.
+        collection_name:  Target Qdrant collection name.
+        dense_embeddings: OpenAI embeddings model instance.
+        bm25_model:       fastembed BM25 sparse encoder instance.
+        batch_size:       Number of documents per upload batch.
+    """
+    from qdrant_client.models import PointStruct, SparseVector
+
+    total = len(chunks)
+    if total == 0:
+        logger.warning("No chunks to upload for '%s', skipping.", collection_name)
+        return
+
+    # Check how many points already exist (for resume support)
+    info = qdrant_service.client.get_collection(collection_name)
+    existing_count = info.points_count
+
+    if existing_count >= total:
+        logger.info(
+            "Collection '%s' already fully uploaded (%d/%d). Skipping!",
+            collection_name, existing_count, total,
+        )
+        return
+
+    start_idx = existing_count
+    if start_idx > 0:
+        logger.info(
+            "Resuming '%s': skipping first %d chunk(s), uploading remaining %d ...",
+            collection_name, start_idx, total - start_idx,
+        )
+
+    # ── Extract all text contents for BM25 encoding ───────────────────
+    all_texts = [chunk.page_content for chunk in chunks]
+
+    logger.info("Computing BM25 sparse vectors for %d documents ...", total)
+    # fastembed BM25 returns a generator of SparseEmbedding objects
+    sparse_embeddings_gen = bm25_model.embed(all_texts, batch_size=batch_size)
+    sparse_embeddings = list(sparse_embeddings_gen)
+    logger.info("BM25 sparse vectors computed.")
+
+    total_batches = (total - start_idx + batch_size - 1) // batch_size
+
+    for batch_start in range(start_idx, total, batch_size):
+        batch_end = min(batch_start + batch_size, total)
+        batch_chunks = chunks[batch_start:batch_end]
+        batch_sparse = sparse_embeddings[batch_start:batch_end]
+        batch_num = (batch_start - start_idx) // batch_size + 1
+
+        logger.info(
+            "Batch %d/%d — dense-embedding %d docs (chunks %d–%d / %d) ...",
+            batch_num, total_batches,
+            len(batch_chunks), batch_start + 1, batch_end, total,
+        )
+
+        # Dense embeddings for this batch via OpenAI
+        batch_texts = [c.page_content for c in batch_chunks]
+        dense_vecs = dense_embeddings.embed_documents(batch_texts)
+
+        # Build PointStructs with named dense + sparse vectors
+        points = []
+        for chunk, dense_vec, sparse_emb in zip(batch_chunks, dense_vecs, batch_sparse):
+            point_id = str(uuid.uuid4())
+            points.append(
+                PointStruct(
+                    id=point_id,
+                    # "dense" must match the key in setup_collection's vectors_config
+                    vectors={"dense": dense_vec},
+                    # SPARSE_VECTOR_NAME must match sparse_vectors_config key
+                    sparse_vectors={
+                        settings.SPARSE_VECTOR_NAME: SparseVector(
+                            indices=sparse_emb.indices.tolist(),
+                            values=sparse_emb.values.tolist(),
+                        )
+                    },
+                    payload={
+                        "page_content": chunk.page_content,
+                        "metadata": chunk.metadata,
+                    },
+                )
+            )
+
+        qdrant_service.client.upsert(
+            collection_name=collection_name,
+            points=points,
+            wait=True,
+        )
+        logger.info("Uploaded batch %d/%d to '%s'.", batch_num, total_batches, collection_name)
+
+    final_count = qdrant_service.client.get_collection(collection_name).points_count
+    logger.info(
+        "✅ Hybrid upload complete for '%s' — total points in Qdrant: %d",
+        collection_name, final_count,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Main ingestion entry point
+# ─────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     base_dir = Path(__file__).parent / "storage"
 
@@ -63,12 +195,28 @@ if __name__ == "__main__":
 
     qdrant_service = QdrantService()
 
+    # ── Dense embedding model (OpenAI) ────────────────────────────────
     logger.info("Loading OpenAI embedding model: %s ...", settings.EMBEDDING_MODEL)
-    embeddings = OpenAIEmbeddings(
+    dense_embeddings = OpenAIEmbeddings(
         model=settings.EMBEDDING_MODEL,
         openai_api_key=settings.OPENAI_API_KEY or None,
     )
     logger.info("OpenAI Embedding model ready.")
+
+    # ── Sparse embedding model (fastembed BM25) ───────────────────────
+    bm25_model: Optional[Any] = None
+    if settings.HYBRID_SEARCH_ENABLED:
+        try:
+            from fastembed.sparse.bm25 import Bm25
+            logger.info("Loading fastembed BM25 sparse encoder (Qdrant/bm25) ...")
+            bm25_model = Bm25(model_name="Qdrant/bm25", language="english")
+            logger.info("BM25 sparse encoder ready.")
+        except ImportError:
+            logger.error(
+                "fastembed is not installed! Run: pip install fastembed\n"
+                "Falling back to dense-only ingestion."
+            )
+            bm25_model = None
 
     summary: dict[str, dict] = {}
 
@@ -92,8 +240,23 @@ if __name__ == "__main__":
             chunks = raw_docs
             logger.info("%d record(s) kept as 1-to-1 documents (no text splitting needed)", len(chunks))
 
+        # ── Create collection (with sparse config if hybrid enabled) ──
         qdrant_service.setup_collection(collection_name)
-        qdrant_service.embed_and_upload(chunks, collection_name, embeddings)
+
+        # ── Upload: hybrid (dense + sparse) OR dense-only ─────────────
+        if settings.HYBRID_SEARCH_ENABLED and bm25_model is not None:
+            logger.info("Using HYBRID ingestion (dense + BM25 sparse) for '%s' ...", collection_name)
+            hybrid_embed_and_upload(
+                qdrant_service=qdrant_service,
+                chunks=chunks,
+                collection_name=collection_name,
+                dense_embeddings=dense_embeddings,
+                bm25_model=bm25_model,
+                batch_size=settings.BATCH_SIZE,
+            )
+        else:
+            logger.info("Using DENSE-ONLY ingestion for '%s' ...", collection_name)
+            qdrant_service.embed_and_upload(chunks, collection_name, dense_embeddings)
 
         summary[engine_name] = {"raw": len(raw_docs), "chunks": len(chunks)}
 
@@ -104,6 +267,3 @@ if __name__ == "__main__":
     for engine_name, stats in summary.items():
         logger.info("%-25s %10d  %10d", engine_name, stats["raw"], stats["chunks"])
     logger.info("=" * 50)
-
-
-

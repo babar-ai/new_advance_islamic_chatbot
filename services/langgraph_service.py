@@ -1,5 +1,6 @@
 
 import asyncio
+from typing import Optional, List, Dict, Any
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -59,6 +60,23 @@ class LangGraphService:
                 
         else:
             logger.warning("TAVILY_API_KEY not set — web search is disabled.")
+
+        # ── BM25 sparse encoder (fastembed) for hybrid search ─────────
+        # Loaded once at startup and shared across all retrieval calls.
+        # query_embed() is called per-request in _parallel_retrieve.
+        self._bm25_model = None
+        if settings.HYBRID_SEARCH_ENABLED:
+            try:
+                from fastembed.sparse.bm25 import Bm25
+                self._bm25_model = Bm25(model_name="Qdrant/bm25", language="english")
+                logger.info("BM25 sparse encoder (fastembed) loaded for hybrid search.")
+            except ImportError:
+                logger.warning(
+                    "fastembed is not installed — hybrid search disabled. "
+                    "Run: pip install fastembed"
+                )
+            except Exception as e:
+                logger.warning("Failed to load BM25 model: %s — hybrid search disabled.", e)
 
         self.graph = self._create_graph()
 
@@ -132,11 +150,18 @@ class LangGraphService:
     # ─────────────────────────────────────────────────────────
     # Node 2: Parallel retrieval from all required sources
     # ─────────────────────────────────────────────────────────
-    
+
     def _parallel_retrieve(self, state: LangGraphState) -> LangGraphState:
         """
         Second node: Dispatches Qdrant searches for all required sources
         concurrently using the pre-computed query embedding.
+
+        When settings.HYBRID_SEARCH_ENABLED=True, each collection search uses
+        hybrid RRF fusion (dense semantic + BM25 sparse keyword vectors).
+        The BM25 sparse vector for the user query is computed once here and
+        reused for all collection searches in this node.
+
+        Falls back to dense-only search if hybrid fails or is disabled.
         """
         if not state.query_embedding:
             logger.error("No query embedding available for retrieval")
@@ -149,7 +174,30 @@ class LangGraphService:
             logger.warning("No required sources identified, defaulting to general_islamic_info")
             required_sources = ["general_islamic_info"]
 
-        logger.info(f"Starting parallel retrieval for sources: {required_sources}, filters: {state.filters} ")
+        logger.info(f"Starting parallel retrieval for sources: {required_sources}, filters: {state.filters}")
+
+        # ── Compute BM25 sparse vector for the query once (reused for all sources) ──
+        sparse_indices: List[int] = []
+        sparse_values: List[float] = []
+        use_hybrid = settings.HYBRID_SEARCH_ENABLED and self._bm25_model is not None
+
+        if use_hybrid:
+            try:
+                sparse_results = list(self._bm25_model.query_embed(state.user_query))
+                if sparse_results:
+                    sparse_emb = sparse_results[0]
+                    sparse_indices = sparse_emb.indices.tolist()
+                    sparse_values = sparse_emb.values.tolist()
+                    logger.info(
+                        "BM25 sparse vector computed for query (%d non-zero terms).",
+                        len(sparse_indices),
+                    )
+                else:
+                    logger.warning("BM25 returned empty sparse vector — falling back to dense-only.")
+                    use_hybrid = False
+            except Exception as e:
+                logger.warning("BM25 query encoding failed: %s — falling back to dense-only.", e)
+                use_hybrid = False
 
         future_to_source = {}
 
@@ -161,42 +209,70 @@ class LangGraphService:
                 continue
 
             limit = SOURCE_LIMITS.get(source, 5)
-
             qdrant_filter = self.qdrant_service.build_qdrant_filter(collection_name, state.filters)
 
-            future = self.retrival_executor.submit(
-                self.qdrant_service.search_by_vector,
-                collection_name,
-                state.query_embedding, 
-                limit,
-                qdrant_filter,
-            )
-           
-            future_to_source[future] = (source, collection_name, qdrant_filter, limit)
+            if use_hybrid:
+                # Hybrid search: dense + BM25 sparse via RRF
+                future = self.retrival_executor.submit(
+                    self.qdrant_service.hybrid_search_by_vector,
+                    collection_name,
+                    state.query_embedding,
+                    sparse_indices,
+                    sparse_values,
+                    limit,
+                    qdrant_filter,
+                )
+            else:
+                # Dense-only fallback
+                future = self.retrival_executor.submit(
+                    self.qdrant_service.search_by_vector,
+                    collection_name,
+                    state.query_embedding,
+                    limit,
+                    qdrant_filter,
+                )
+
+            future_to_source[future] = (source, collection_name, qdrant_filter, limit, use_hybrid)
 
         # Collect results as they complete
         for future in as_completed(future_to_source):
-            source, collection_name, qdrant_filter, limit = future_to_source[future]
-            
+            source, collection_name, qdrant_filter, limit, was_hybrid = future_to_source[future]
+
             try:
                 documents = future.result()
 
+                # If filtered search returned nothing, retry without metadata filters
                 if not documents and qdrant_filter is not None:
-                                    logger.warning(f"Filtered search returned 0 docs for '{source}'. Falling back to unfiltered vector search...")
-                                    documents = self.qdrant_service.search_by_vector(
-                                        collection_name,
-                                        state.query_embedding,
-                                        limit,
-                                        query_filter=None,
-                                    )
+                    logger.warning(
+                        "Filtered search returned 0 docs for '%s'. Falling back to unfiltered search...",
+                        source,
+                    )
+                    if was_hybrid:
+                        documents = self.qdrant_service.hybrid_search_by_vector(
+                            collection_name,
+                            state.query_embedding,
+                            sparse_indices,
+                            sparse_values,
+                            limit,
+                            query_filter=None,
+                        )
+                    else:
+                        documents = self.qdrant_service.search_by_vector(
+                            collection_name,
+                            state.query_embedding,
+                            limit,
+                            query_filter=None,
+                        )
+
                 state.retrieved_documents[source] = documents
-                logger.info(f"Retrieved {len(documents)} documents from '{source}'")
-            
+                logger.info(f"Retrieved {len(documents)} documents from '{source}' (hybrid={was_hybrid})")
+
             except Exception as e:
                 logger.error(f"Error retrieving from '{source}': {e}")
                 state.retrieved_documents[source] = []
-        
+
         return state
+
 
 
 
@@ -205,49 +281,124 @@ class LangGraphService:
     # ─────────────────────────────────────────────────────────
     def _build_context(self, state: LangGraphState) -> str:
         """
-        Compiles all retrieved documents + web search results
-        into a single context string. Shared by both the sync
-        graph node and the async streaming path.
+        Compiles all retrieved documents + web search results into a single context string.
+        Source links are strictly extracted from the Qdrant metadata payload if available.
+        If no link exists in the metadata, no unverified external URL is added.
         """
         context_sections = []
 
-        # Add web search results
+        def _get_metadata_link(meta: dict) -> Optional[str]:
+            for key in (
+                "En_source_url",
+                "Tafsir_Source",
+                "source_url",
+                "url",
+                "link",
+                "source_link",
+                "Russain_tafaseer_source_url",
+            ):
+                val = meta.get(key)
+                if val and isinstance(val, str) and val.strip().startswith(("http://", "https://")):
+                    return val.strip()
+            return None
+
+        # 1. Add web search results with URLs
         if state.web_search_results:
             web_context = "\n--- WEB SEARCH RESULTS ---\n"
             for i, doc in enumerate(state.web_search_results):
-                web_context += f"{i+1}.\nTitle: {doc['title']}\nContent: {doc['content']}\nURL: {doc['url']}\n\n"
+                title = doc.get("title", "Web Source")
+                url = doc.get("url", "").strip()
+                content = doc.get("content", "")
+                web_context += (
+                    f"{i+1}.\n"
+                    f"Title: {title}\n"
+                    f"Content: {content}\n"
+                )
+                if url:
+                    web_context += f"Source URL: {url}\n"
+                web_context += "\n"
             context_sections.append(web_context)
 
-        # Add retrieved documents by source with explicit field extraction for Quranic Arabic text
+        # 2. Add retrieved documents by source, extracting links strictly from metadata payload
         for source_type, documents in state.retrieved_documents.items():
-            if documents:
-                source_context = f"\n--- {source_type.upper()} SOURCES ---\n"
-                for i, doc in enumerate(documents):
-                    meta = doc.get("metadata", {})
-                    if source_type.lower() == "quran":
-                        arabic = meta.get("arabic", "")
-                        surah = meta.get("surah", "")
-                        ayah = meta.get("ayah_number", meta.get("reference", ""))
-                        ref = meta.get("reference", f"{surah} {ayah}")
-                        source_context += (
-                            f"{i+1}.\n"
-                            f"Surah: {surah} (Ayah {ayah})\n"
-                            f"Arabic Ayah: {arabic}\n"
-                            f"English Translation: {doc.get('content', '')}\n"
-                            f"Reference: {ref}\n\n"
-                        )
-                    elif source_type.lower() == "hadith":
-                        title = meta.get("title", meta.get("book_name", "Hadith"))
-                        narrator = meta.get("narrator", "")
-                        source_context += (
-                            f"{i+1}.\n"
-                            f"Hadith Source: {title}\n"
-                            f"Narrator: {narrator}\n"
-                            f"Hadith Text: {doc.get('content', '')}\n\n"
-                        )
-                    else:
-                        source_context += f"{i+1}.\nContent: {doc.get('content', '')}\nMetadata: {meta}\n\n"
-                context_sections.append(source_context)
+            if not documents:
+                continue
+
+            s_type = source_type.lower()
+            source_context = f"\n--- {source_type.upper()} SOURCES ---\n"
+
+            for i, doc in enumerate(documents):
+                meta = doc.get("metadata", {})
+                content = doc.get("content", "")
+                source_url = _get_metadata_link(meta)
+
+                # ── Quran Collection ──────────────────────────────
+                if "quran" in s_type:
+                    arabic = meta.get("arabic", "")
+                    surah = meta.get("surah", "")
+                    ayah = meta.get("ayah_number", meta.get("reference", ""))
+                    ref = meta.get("reference", f"{surah} {ayah}")
+
+                    source_context += (
+                        f"{i+1}.\n"
+                        f"Surah: {surah} (Ayah {ayah})\n"
+                        f"Arabic Ayah: {arabic}\n"
+                        f"English Translation: {content}\n"
+                        f"Reference: {ref}\n"
+                    )
+                    if source_url:
+                        source_context += f"Source URL: {source_url}\n"
+                    source_context += "\n"
+
+                # ── Hadith Collection ─────────────────────────────
+                elif "hadith" in s_type:
+                    title = meta.get("title", meta.get("book_name", "Hadith Collection"))
+                    narrator = meta.get("narrator", "")
+
+                    source_context += (
+                        f"{i+1}.\n"
+                        f"Hadith Collection: {title}\n"
+                        f"Narrator: {narrator}\n"
+                        f"Hadith Text: {content}\n"
+                    )
+                    if source_url:
+                        source_context += f"Source URL: {source_url}\n"
+                    source_context += "\n"
+
+                # ── Tafsir Collection ─────────────────────────────
+                elif "tafsir" in s_type or "tafseer" in s_type:
+                    tafsir_name = (
+                        meta.get("En_tafsir_source")
+                        or meta.get("tafsir_source")
+                        or "Classical Tafsir Commentary"
+                    )
+                    surah = meta.get("surah", "")
+                    ayah = meta.get("ayah_number", "")
+
+                    source_context += (
+                        f"{i+1}.\n"
+                        f"Tafsir Commentary: {tafsir_name}\n"
+                        f"Surah: {surah} (Ayah {ayah})\n"
+                        f"Commentary Text: {content}\n"
+                    )
+                    if source_url:
+                        source_context += f"Source URL: {source_url}\n"
+                    source_context += "\n"
+
+                # ── General Islamic Info ──────────────────────────
+                else:
+                    book_name = meta.get("book_name") or meta.get("title") or "Islamic Knowledge Base"
+
+                    source_context += (
+                        f"{i+1}.\n"
+                        f"Book / Source: {book_name}\n"
+                        f"Content: {content}\n"
+                    )
+                    if source_url:
+                        source_context += f"Source URL: {source_url}\n"
+                    source_context += "\n"
+
+            context_sections.append(source_context)
 
         return "\n\n".join(context_sections)
 

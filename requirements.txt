@@ -6,6 +6,7 @@ langchain-text-splitters     # RecursiveCharacterTextSplitter for chunking
 # ── Vector Database ───────────────────────────────────────────────────
 langchain-qdrant             # LangChain ↔ Qdrant integration
 qdrant-client                # Direct Qdrant Python client (REST + gRPC)
+fastembed                    # Qdrant BM25 sparse embeddings (offline, no API cost)
 
 # ── OpenAI & Environment ──────────────────────────────────────────────
 langchain-openai

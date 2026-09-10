@@ -1,10 +1,20 @@
 import sys
 from pathlib import Path
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Dict
 
 import uuid
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import (
+    Distance,
+    VectorParams,
+    SparseVectorParams,
+    SparseIndexParams,
+    PointStruct,
+    Prefetch,
+    SparseVector,
+    Fusion,
+    FusionQuery,
+)
 from langchain_qdrant import QdrantVectorStore
 from langchain_core.documents import Document
 
@@ -65,31 +75,68 @@ class QdrantService:
         collection_name: str,
         embedding_dimension: Optional[int] = None,
         force_recreate: Optional[bool] = None,
+        with_sparse_vectors: bool = True,
     ) -> None:
-
-        """Creates or ensures a Qdrant collection exists. Resets if force_recreate is True."""
+        """
+        Creates or ensures a Qdrant collection exists. Resets if force_recreate is True.
+        When with_sparse_vectors=True (and the collection is not the cache collection),
+        the collection is created with both a dense vector config AND a sparse vector config
+        for BM25 hybrid search. The sparse vector name is taken from settings.SPARSE_VECTOR_NAME.
+        """
         dimension = embedding_dimension or settings.EMBEDDING_DIMENSION
         should_recreate = settings.FORCE_RECREATE if force_recreate is None else force_recreate
+
+        # The classification cache only needs dense vectors (no hybrid search needed there)
+        is_cache_collection = (collection_name == settings.CLASSIFICATION_CACHE_COLLECTION_NAME)
+        enable_sparse = with_sparse_vectors and not is_cache_collection and settings.HYBRID_SEARCH_ENABLED
 
         existing_collections = [col.name for col in self.client.get_collections().collections]
 
         if should_recreate and collection_name in existing_collections:
             logger.warning("FORCE_RECREATE=True. Deleting collection '%s' for clean re-index.", collection_name)
-
             self.client.delete_collection(collection_name=collection_name)
             existing_collections.remove(collection_name)
 
         if collection_name not in existing_collections:
-            logger.info("Creating fresh Qdrant collection: '%s' ...", collection_name)
-
-            self.client.create_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(
-                    size=dimension,
-                    distance=Distance.COSINE,
-                ),
+            logger.info(
+                "Creating fresh Qdrant collection: '%s' (sparse=%s) ...",
+                collection_name,
+                enable_sparse,
             )
-            logger.info("Collection '%s' created (dim=%d, metric=COSINE)", collection_name, dimension)
+
+            if enable_sparse:
+                # Hybrid collection: named dense vector + named sparse vector
+                # Dense vector is named "dense"; sparse vector uses settings.SPARSE_VECTOR_NAME
+                self.client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config={
+                        "dense": VectorParams(
+                            size=dimension,
+                            distance=Distance.COSINE,
+                        )
+                    },
+                    sparse_vectors_config={
+                        settings.SPARSE_VECTOR_NAME: SparseVectorParams(
+                            index=SparseIndexParams(
+                                on_disk=False,  # keep in RAM for fast retrieval
+                            )
+                        )
+                    },
+                )
+            else:
+                # Dense-only collection (cache or hybrid disabled)
+                self.client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(
+                        size=dimension,
+                        distance=Distance.COSINE,
+                    ),
+                )
+
+            logger.info(
+                "Collection '%s' created (dim=%d, COSINE, sparse=%s)",
+                collection_name, dimension, enable_sparse,
+            )
 
         else:
             info = self.client.get_collection(collection_name)
@@ -173,33 +220,35 @@ class QdrantService:
         return vector_store.similarity_search(query=query, k=limit)
 
 
-    def search_by_vector(self, collection_name: str, query_vector: List[float], limit: int = 5,  query_filter: Optional[models.Filter] = None,) -> List[dict]:
+    def search_by_vector(
+        self,
+        collection_name: str,
+        query_vector: List[float],
+        limit: int = 5,
+        query_filter: Optional[models.Filter] = None,
+    ) -> List[dict]:
         """
-        Search using a pre-computed embedding vector — avoids redundant embed_query calls.
+        Dense-only (semantic) search using a pre-computed embedding vector.
+        Used for the classification cache collection and as fallback when hybrid is disabled.
         Returns raw dicts with 'content', 'metadata', and 'score' keys.
         """
         try:
             if hasattr(self.client, "query_points"):
                 res = self.client.query_points(
-
                     collection_name=collection_name,
                     query=query_vector,
                     limit=limit,
-                    query_filter=query_filter, 
-
+                    query_filter=query_filter,
                     with_payload=True,
                     with_vectors=False,
                 )
                 results = res.points
-
             else:
                 results = self.client.search(
-
                     collection_name=collection_name,
                     query_vector=query_vector,
                     limit=limit,
                     query_filter=query_filter,
-
                     with_payload=True,
                     with_vectors=False,
                 )
@@ -215,6 +264,83 @@ class QdrantService:
         except Exception as e:
             logger.error("Error in search_by_vector for '%s': %s", collection_name, e)
             return []
+
+
+    def hybrid_search_by_vector(
+        self,
+        collection_name: str,
+        dense_vector: List[float],
+        sparse_indices: List[int],
+        sparse_values: List[float],
+        limit: int = 5,
+        query_filter: Optional[models.Filter] = None,
+    ) -> List[dict]:
+        """
+        Hybrid search using RRF fusion of dense (semantic) + sparse (BM25 keyword) vectors.
+
+        How it works:
+          1. Prefetch top-K candidates from the dense vector index.
+          2. Prefetch top-K candidates from the sparse (BM25) vector index.
+          3. Qdrant's native RRF (Reciprocal Rank Fusion) merges both ranked lists
+             into a single re-ranked result list.
+
+        Args:
+            collection_name:  Target Qdrant collection (must have both dense + sparse configs).
+            dense_vector:     Pre-computed OpenAI dense embedding (list of floats, dim=1536).
+            sparse_indices:   BM25 sparse vector token indices (from fastembed).
+            sparse_values:    BM25 sparse vector token weights (from fastembed).
+            limit:            Number of final results to return after RRF fusion.
+            query_filter:     Optional Qdrant metadata filter (surah_number, ayah_number, etc.).
+
+        Returns:
+            List of dicts with 'content', 'metadata', and 'score' keys.
+        """
+        try:
+            # Prefetch a larger candidate pool from each index, then fuse down to `limit`
+            prefetch_limit = limit * 3
+
+            prefetch_dense = Prefetch(
+                query=dense_vector,
+                using="dense",           # name matching vectors_config key in setup_collection
+                limit=prefetch_limit,
+                filter=query_filter,
+            )
+
+            prefetch_sparse = Prefetch(
+                query=SparseVector(
+                    indices=sparse_indices,
+                    values=sparse_values,
+                ),
+                using=settings.SPARSE_VECTOR_NAME,   # matches sparse_vectors_config key
+                limit=prefetch_limit,
+                filter=query_filter,
+            )
+
+            res = self.client.query_points(
+                collection_name=collection_name,
+                prefetch=[prefetch_dense, prefetch_sparse],
+                query=FusionQuery(fusion=Fusion.RRF),   # native RRF re-ranking
+                limit=limit,
+                with_payload=True,
+                with_vectors=False,
+            )
+
+            return [
+                {
+                    "content": r.payload.get("page_content", ""),
+                    "metadata": r.payload.get("metadata", {}),
+                    "score": r.score,
+                }
+                for r in res.points
+            ]
+
+        except Exception as e:
+            logger.error(
+                "Error in hybrid_search_by_vector for '%s': %s. Falling back to dense-only.",
+                collection_name, e,
+            )
+            # Graceful fallback to dense-only search if hybrid fails
+            return self.search_by_vector(collection_name, dense_vector, limit, query_filter)
 
 
     def upsert_cache_vector(

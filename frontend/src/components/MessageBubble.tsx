@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Message } from "@/lib/types";
@@ -24,6 +24,33 @@ function getNodeText(node: React.ReactNode): string {
     return getNodeText((node as any).props?.children);
   }
   return "";
+}
+
+// Helper to strip leading "Source:" label while preserving React nodes (like <a> links)
+function stripSourceLabel(children: React.ReactNode): React.ReactNode {
+  if (typeof children === "string") {
+    return children
+      .replace(
+        /^(?:\*{0,2}(?:Source|Sources|Reference|References|Tafsir Source|Tafseer Source|Tafsir|Tafseer)\*{0,2}\s*:|—|–|-)\s*/i,
+        ""
+      )
+      .trim();
+  }
+  if (Array.isArray(children)) {
+    return React.Children.map(children, (child, idx) => {
+      if (idx === 0 && typeof child === "string") {
+        const cleaned = child
+          .replace(
+            /^(?:\*{0,2}(?:Source|Sources|Reference|References|Tafsir Source|Tafseer Source|Tafsir|Tafseer)\*{0,2}\s*:|—|–|-)\s*/i,
+            ""
+          )
+          .trim();
+        return cleaned || null;
+      }
+      return child;
+    });
+  }
+  return children;
 }
 
 // Helper to determine if a line or block is a source citation
@@ -50,7 +77,7 @@ function isSourceCitation(text: string): boolean {
 
   // Pattern 1: Explicit labels like Source:, Reference:, Tafsir Source:, etc.
   if (
-    /^(?:\*{0,2}(?:Source|Sources|Reference|References|Tafsir Source|Tafseer Source|Tafsir|Tafseer)\*{0,2}\s*:)\s*(?:[A-Za-z0-9(].+)/i.test(
+    /^(?:\*{0,2}(?:Source|Sources|Reference|References|Tafsir Source|Tafseer Source|Tafsir|Tafseer)\*{0,2}\s*:)\s*(?:[A-Za-z0-9(\[].+)/i.test(
       trimmed
     ) ||
     /^(?:Source|Sources|Reference|References|Tafsir Source|Tafseer Source|Tafsir|Tafseer)\s*:/i.test(
@@ -191,39 +218,58 @@ export default function MessageBubble({
   // Automatically detect cited Islamic sources from message text for the drawer
   const detectedSources = useMemo(() => {
     if (isUser) return [];
-    const sources: string[] = [];
+    const sources: { name: string; url?: string }[] = [];
+    const seenNames = new Set<string>();
 
-    // Extract parenthesized citations
+    const addSource = (name: string, url?: string) => {
+      const trimmedName = name
+        .trim()
+        .replace(/^[\s*_\(\[]+/, "")
+        .replace(/[\s*_\)\]]+$/, "");
+      if (!trimmedName || seenNames.has(trimmedName.toLowerCase())) return;
+      seenNames.add(trimmedName.toLowerCase());
+      sources.push({ name: trimmedName, url });
+    };
+
+    // 1. Detect Markdown links: [Title](URL)
+    const linkMatches = Array.from(
+      message.content.matchAll(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g)
+    );
+    for (const match of linkMatches) {
+      addSource(match[1], match[2]);
+    }
+
+    // 2. Extract parenthesized citations
     const matches1 =
       message.content.match(
         /\((?:Quran|Qur'an|Surah|Sahih|Sunan|Jami|Musnad|Muwatta|Ibn|Tirmidhi|Abu Dawood|Tafsir|Tirmizi)[^)]*\)/gi
       ) || [];
     matches1.forEach((m) => {
       const cleaned = m.replace(/^[—\-\s(]+|[)\s]+$/g, "").trim();
-      if (cleaned) sources.push(cleaned);
+      if (cleaned) addSource(cleaned);
     });
 
-    // Extract Surah name + verse citations (including transliterated names)
+    // 3. Extract Surah name + verse citations (including transliterated names)
     const matches2 =
       message.content.match(
         /(?:Surah|Qur['’]?an)\s+[A-Za-z\s'’\u0100-\u024F\-]+(?:\(?\d+:\d+(?:-\d+)?\)?|\d+:\d+)/gi
       ) || [];
     matches2.forEach((m) => {
       const cleaned = m.replace(/^[—\-\s(]+|[)\s]+$/g, "").trim();
-      if (cleaned) sources.push(cleaned);
+      if (cleaned) addSource(cleaned);
     });
 
-    // Extract Hadith collection citations
+    // 4. Extract Hadith collection citations
     const matches3 =
       message.content.match(
         /(?:Sahih|Sunan|Jami['’]?|Musnad|Muwatta)\s+(?:al-)?[A-Za-z\s'’\u0100-\u024F\-]+(?:\d+|Book|\([^\)]+\))/gi
       ) || [];
     matches3.forEach((m) => {
       const cleaned = m.replace(/^[—\-\s(]+|[)\s]+$/g, "").trim();
-      if (cleaned) sources.push(cleaned);
+      if (cleaned) addSource(cleaned);
     });
 
-    // Extract Source: ... lines
+    // 5. Extract Source: ... lines
     const matches4 =
       message.content.match(/(?:Source|Reference):\s*([^\n\r]+)/gi) || [];
     matches4.forEach((m) => {
@@ -231,10 +277,15 @@ export default function MessageBubble({
         .replace(/^(?:Source|Reference):\s*/i, "")
         .replace(/^[—\-\s(]+|[)\s]+$/g, "")
         .trim();
-      if (cleaned) sources.push(cleaned);
+      const linkMatch = cleaned.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+      if (linkMatch) {
+        addSource(linkMatch[1], linkMatch[2]);
+      } else if (cleaned) {
+        addSource(cleaned);
+      }
     });
 
-    return Array.from(new Set(sources));
+    return sources;
   }, [message.content, isUser]);
 
   const handleCopy = async () => {
@@ -386,7 +437,7 @@ export default function MessageBubble({
                           Source:
                         </span>
                         <span className="font-semibold text-slate-800 dark:text-emerald-200">
-                          {cleanSource || text}
+                          {stripSourceLabel(children)}
                         </span>
                       </div>
                     </div>
@@ -408,62 +459,37 @@ export default function MessageBubble({
                 </blockquote>
               ),
 
-              // List items with source recognition
-              li: ({ children }) => {
-                const text = getNodeText(children);
-                if (isSourceCitation(text)) {
-                  let cleanSource = text
-                    .trim()
-                    .replace(
-                      /^(?:\*{0,2}(?:Source|Sources|Reference|References|Tafsir Source|Tafseer Source|Tafsir|Tafseer)\*{0,2}\s*:|—|–|-)\s*/i,
-                      ""
-                    )
-                    .replace(/^(?:Source|Sources|Reference|References)\s*:\s*/i, "")
-                    .replace(/^[\s*_\(\[]+/, "")
-                    .replace(/[\s*_\)\]]+$/, "")
-                    .replace(/[\s\-–—]*(?:Arabic|Translation)\s*:?\s*$/i, "")
-                    .trim();
+              // List items with native support for clickable source links
+              li: ({ children }) => (
+                <li className="mb-1.5 text-slate-700 dark:text-slate-300 leading-relaxed text-sm sm:text-base">
+                  {children}
+                </li>
+              ),
 
-                  if (!/[A-Za-z0-9\u0600-\u06FF]/.test(cleanSource)) {
-                    return (
-                      <li className="mb-1.5 text-slate-700 dark:text-slate-300 leading-relaxed text-sm sm:text-base">
-                        {children}
-                      </li>
-                    );
-                  }
-
-                  return (
-                    <li className="mb-2 list-none not-prose">
-                      <div className="source-citation-badge inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/70 text-[#084C3E] dark:text-emerald-300 font-sans not-italic text-xs sm:text-[13px] font-semibold tracking-wide shadow-2xs">
-                        <svg
-                          className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-                          />
-                        </svg>
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700/80 dark:text-emerald-400/80">
-                          Source:
-                        </span>
-                        <span className="font-semibold text-slate-800 dark:text-emerald-200">
-                          {cleanSource || text}
-                        </span>
-                      </div>
-                    </li>
-                  );
-                }
-                return (
-                  <li className="mb-1.5 text-slate-700 dark:text-slate-300 leading-relaxed text-sm sm:text-base">
-                    {children}
-                  </li>
-                );
-              },
+              // Clickable external links with modern emerald aesthetic and external link icon
+              a: ({ href, children }) => (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 underline underline-offset-2 decoration-emerald-500/40 hover:decoration-emerald-500 transition-colors"
+                >
+                  <span>{children}</span>
+                  <svg
+                    className="w-3.5 h-3.5 inline-block opacity-70"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                    />
+                  </svg>
+                </a>
+              ),
 
               // Headers with clear hierarchy
               h1: ({ children }) => (
@@ -521,15 +547,41 @@ export default function MessageBubble({
                       Specific Verses &amp; Collections Referenced:
                     </p>
                     <div className="flex flex-wrap gap-2">
-                      {detectedSources.map((src, idx) => (
-                        <span
-                          key={idx}
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-[#084C3E] dark:text-emerald-300 shadow-2xs"
-                        >
-                          <span className="text-amber-500">۞</span>
-                          <span>{src}</span>
-                        </span>
-                      ))}
+                      {detectedSources.map((src, idx) =>
+                        src.url ? (
+                          <a
+                            key={idx}
+                            href={src.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold text-[#084C3E] dark:text-emerald-300 hover:border-emerald-400 hover:text-emerald-700 shadow-2xs transition-colors"
+                          >
+                            <span className="text-amber-500">۞</span>
+                            <span>{src.name}</span>
+                            <svg
+                              className="w-3 h-3 opacity-60"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                              />
+                            </svg>
+                          </a>
+                        ) : (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-[#084C3E] dark:text-emerald-300 shadow-2xs"
+                          >
+                            <span className="text-amber-500">۞</span>
+                            <span>{src.name}</span>
+                          </span>
+                        )
+                      )}
                     </div>
                   </div>
                 ) : null}
@@ -569,11 +621,10 @@ export default function MessageBubble({
                 <button
                   type="button"
                   onClick={() => setShowSources(!showSources)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
-                    showSources
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${showSources
                       ? "text-[#084C3E] dark:text-emerald-400 bg-slate-100 dark:bg-slate-800 font-medium"
                       : "text-slate-500 dark:text-slate-400"
-                  }`}
+                    }`}
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -618,11 +669,10 @@ export default function MessageBubble({
                 <button
                   type="button"
                   onClick={handleSave}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
-                    isSaved
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${isSaved
                       ? "text-[#084C3E] dark:text-emerald-400 bg-slate-100 dark:bg-slate-800 font-medium"
                       : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-                  }`}
+                    }`}
                 >
                   <svg
                     className="w-3.5 h-3.5"
@@ -647,9 +697,8 @@ export default function MessageBubble({
                 <button
                   type="button"
                   onClick={() => handleFeedback("like")}
-                  className={`p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
-                    feedback === "like" ? "text-[#084C3E] dark:text-emerald-400" : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                  }`}
+                  className={`p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${feedback === "like" ? "text-[#084C3E] dark:text-emerald-400" : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                    }`}
                   title="Helpful"
                 >
                   <svg className="w-3.5 h-3.5" fill={feedback === "like" ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
@@ -661,9 +710,8 @@ export default function MessageBubble({
                 <button
                   type="button"
                   onClick={() => handleFeedback("dislike")}
-                  className={`p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
-                    feedback === "dislike" ? "text-red-500" : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                  }`}
+                  className={`p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${feedback === "dislike" ? "text-red-500" : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                    }`}
                   title="Not helpful"
                 >
                   <svg className="w-3.5 h-3.5" fill={feedback === "dislike" ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
