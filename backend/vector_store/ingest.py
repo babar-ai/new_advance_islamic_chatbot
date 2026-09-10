@@ -78,8 +78,7 @@ def hybrid_embed_and_upload(
     then upserts them into the Qdrant collection using PointStruct.
 
     Each point is stored with:
-      - vectors={"dense": <openai_embedding>}
-      - sparse_vectors={settings.SPARSE_VECTOR_NAME: SparseVector(indices, values)}
+      - vector={"dense": <openai_embedding>, SPARSE_VECTOR_NAME: SparseVector(...)}
       - payload={"page_content": ..., "metadata": ...}
 
     Args:
@@ -142,21 +141,23 @@ def hybrid_embed_and_upload(
         batch_texts = [c.page_content for c in batch_chunks]
         dense_vecs = dense_embeddings.embed_documents(batch_texts)
 
-        # Build PointStructs with named dense + sparse vectors
+        # Build PointStructs with named dense + sparse vectors.
+        # Use the single `vector={}` dict (compatible with all qdrant-client versions):
+        #   - dense vector stored under key "dense"
+        #   - sparse vector stored under key settings.SPARSE_VECTOR_NAME (e.g. "sparse")
+        # Both go into the same dict — qdrant-client resolves dense vs sparse by type.
         points = []
         for chunk, dense_vec, sparse_emb in zip(batch_chunks, dense_vecs, batch_sparse):
             point_id = str(uuid.uuid4())
             points.append(
                 PointStruct(
                     id=point_id,
-                    # "dense" must match the key in setup_collection's vectors_config
-                    vectors={"dense": dense_vec},
-                    # SPARSE_VECTOR_NAME must match sparse_vectors_config key
-                    sparse_vectors={
+                    vector={
+                        "dense": dense_vec,
                         settings.SPARSE_VECTOR_NAME: SparseVector(
                             indices=sparse_emb.indices.tolist(),
                             values=sparse_emb.values.tolist(),
-                        )
+                        ),
                     },
                     payload={
                         "page_content": chunk.page_content,
