@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = 1200
     CHUNK_OVERLAP: int = 150
     BATCH_SIZE: int = 500
-    FORCE_RECREATE: bool = True
+    FORCE_RECREATE: bool = False
 
 
     # API Keys (defaults to empty string if not present in environment or .env)
@@ -77,6 +77,7 @@ class Settings(BaseSettings):
             "quran": self.QURAN_COLLECTION_NAME,
             "hadith": self.HADITH_COLLECTION_NAME,
             "tafseer": self.TAFSEER_COLLECTION_NAME,
+            "tafsir": self.TAFSEER_COLLECTION_NAME,
             "general_islamic_info": self.ISLAMIC_INFO_COLLECTION_NAME,
         }
 

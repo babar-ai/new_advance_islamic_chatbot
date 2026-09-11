@@ -214,11 +214,14 @@ class QdrantService:
 
     def get_vector_store(self, collection_name: str, embeddings: Any) -> QdrantVectorStore:
         """Returns a LangChain QdrantVectorStore instance for querying an existing collection."""
-        return QdrantVectorStore(
-            client=self.client,
-            collection_name=collection_name,
-            embedding=embeddings,
-        )
+        kwargs: dict = {
+            "client": self.client,
+            "collection_name": collection_name,
+            "embedding": embeddings,
+        }
+        if collection_name != settings.CLASSIFICATION_CACHE_COLLECTION_NAME and settings.HYBRID_SEARCH_ENABLED:
+            kwargs["vector_name"] = "dense"
+        return QdrantVectorStore(**kwargs)
 
 
     def get_retriever(self, collection_name: str, embeddings: Any, k: int = 4, search_type: str = "similarity"):
@@ -246,24 +249,30 @@ class QdrantService:
         Returns raw dicts with 'content', 'metadata', and 'score' keys.
         """
         try:
+            using_vector = "dense" if (collection_name != settings.CLASSIFICATION_CACHE_COLLECTION_NAME and settings.HYBRID_SEARCH_ENABLED) else None
+            query_kwargs: dict = {
+                "collection_name": collection_name,
+                "limit": limit,
+                "query_filter": query_filter,
+                "with_payload": True,
+                "with_vectors": False,
+            }
+            if using_vector:
+                query_kwargs["using"] = using_vector
+
             if hasattr(self.client, "query_points"):
                 res = self.client.query_points(
-                    collection_name=collection_name,
                     query=query_vector,
-                    limit=limit,
-                    query_filter=query_filter,
-                    with_payload=True,
-                    with_vectors=False,
+                    **query_kwargs,
                 )
                 results = res.points
             else:
+                if using_vector:
+                    query_kwargs.pop("using", None)
+                    query_kwargs["vector_name"] = using_vector
                 results = self.client.search(
-                    collection_name=collection_name,
                     query_vector=query_vector,
-                    limit=limit,
-                    query_filter=query_filter,
-                    with_payload=True,
-                    with_vectors=False,
+                    **query_kwargs,
                 )
 
             return [

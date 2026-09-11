@@ -26,10 +26,13 @@ import uuid
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 
-# Add project root to sys.path
-project_root = Path(__file__).resolve().parent.parent.parent
+# Add project root and vector_store folder to sys.path
+vector_store_dir = Path(__file__).resolve().parent
+project_root = vector_store_dir.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
+if str(vector_store_dir) not in sys.path:
+    sys.path.insert(0, str(vector_store_dir))
 
 from utils.custom_logger import setup_logger
 from utils.config import settings
@@ -180,20 +183,21 @@ def hybrid_embed_and_upload(
     )
 
 
+BASE_DIR = Path(__file__).parent / "storage"
+
+SOURCES = {
+    "quran":                BASE_DIR / "quran",
+    "hadith":               BASE_DIR / "hadith",
+    "tafseer":              BASE_DIR / "tafsir",
+    "general_islamic_info": BASE_DIR / "general islamic books",
+}
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Main ingestion entry point
 # ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    base_dir = Path(__file__).parent / "storage"
-
-    SOURCES = {
-        "quran":                base_dir / "quran",
-        "hadith":               base_dir / "hadith",
-        "tafsir":               base_dir / "tafsir",
-        "general_islamic_info": base_dir / "general islamic books",
-    }
-
     qdrant_service = QdrantService()
 
     # ── Dense embedding model (OpenAI) ────────────────────────────────
