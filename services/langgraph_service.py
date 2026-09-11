@@ -319,7 +319,19 @@ class LangGraphService:
                 web_context += "\n"
             context_sections.append(web_context)
 
-        # 2. Add retrieved documents by source, extracting links strictly from metadata payload
+        # Primary 6 Hadith collection authentic source URLs (Archive.org verified editions)
+        HADITH_SOURCE_URLS = {
+            "bukhari": "https://archive.org/details/sahih-al-bukhari-vol.-3-1773-2737_202111/Sahih%20al-Bukhari%20Vol.%201%20-%201-875/",
+            "muslim": "https://archive.org/details/sahih-muslim-arabic-english-full/sahih-muslim-english-vol-1/",
+            "dawud": "https://archive.org/details/sunan-abu-dawud-vol.-1-1-1160_202111/Sunan%20Abu%20Dawud%20Vol.%201%20-%201-1160/",
+            "dawood": "https://archive.org/details/sunan-abu-dawud-vol.-1-1-1160_202111/Sunan%20Abu%20Dawud%20Vol.%201%20-%201-1160/",
+            "tirmidhi": "https://archive.org/details/jami-at-tirmidhi-vol.-6-3291-3956_202111/Jami%20at-Tirmidhi%20Vol.%201%20-%201-543/",
+            "tirmizi": "https://archive.org/details/jami-at-tirmidhi-vol.-6-3291-3956_202111/Jami%20at-Tirmidhi%20Vol.%201%20-%201-543/",
+            "majah": "https://archive.org/details/sunan-ibn-majah-arabic-english-full/sunan-ibn-majah-english-vol-1/",
+            "nasa": "https://archive.org/details/sunan-nasai-arabic-english-full/sunan-nasai-english-vol-1/page/n3/mode/2up",
+        }
+
+        # 2. Add retrieved documents by source, applying accurate source link rules
         for source_type, documents in state.retrieved_documents.items():
             if not documents:
                 continue
@@ -330,14 +342,21 @@ class LangGraphService:
             for i, doc in enumerate(documents):
                 meta = doc.get("metadata", {})
                 content = doc.get("content", "")
-                source_url = _get_metadata_link(meta)
 
-                # ── Quran Collection ──────────────────────────────
+                # ── 1. Quran Collection: Direct verse link to https://quran.com/{surah}:{ayah} ──
                 if "quran" in s_type:
                     arabic = meta.get("arabic", "")
                     surah = meta.get("surah", "")
                     ayah = meta.get("ayah_number", meta.get("reference", ""))
                     ref = meta.get("reference", f"{surah} {ayah}")
+
+                    ref_str = str(meta.get("reference", "")).strip()
+                    if ref_str and ":" in ref_str:
+                        quran_url = f"https://quran.com/{ref_str}"
+                    else:
+                        surah_val = meta.get("surah_number") or meta.get("surah", "")
+                        ayah_val = meta.get("ayah_number", "")
+                        quran_url = f"https://quran.com/{surah_val}:{ayah_val}" if (surah_val and ayah_val) else "https://quran.com"
 
                     source_context += (
                         f"{i+1}.\n"
@@ -345,15 +364,20 @@ class LangGraphService:
                         f"Arabic Ayah: {arabic}\n"
                         f"English Translation: {content}\n"
                         f"Reference: {ref}\n"
+                        f"Source URL: {quran_url}\n\n"
                     )
-                    if source_url:
-                        source_context += f"Source URL: {source_url}\n"
-                    source_context += "\n"
 
-                # ── Hadith Collection ─────────────────────────────
+                # ── 2. Hadith Collection: Primary 6 Hadith Sources mapped to verified editions ──
                 elif "hadith" in s_type:
                     title = meta.get("title", meta.get("book_name", "Hadith Collection"))
                     narrator = meta.get("narrator", "")
+
+                    hadith_url = None
+                    t_lower = title.lower()
+                    for k, u in HADITH_SOURCE_URLS.items():
+                        if k in t_lower:
+                            hadith_url = u
+                            break
 
                     source_context += (
                         f"{i+1}.\n"
@@ -361,11 +385,11 @@ class LangGraphService:
                         f"Narrator: {narrator}\n"
                         f"Hadith Text: {content}\n"
                     )
-                    if source_url:
-                        source_context += f"Source URL: {source_url}\n"
+                    if hadith_url:
+                        source_context += f"Source URL: {hadith_url}\n"
                     source_context += "\n"
 
-                # ── Tafsir Collection ─────────────────────────────
+                # ── 3. Tafsir Collection: Tanwir al-Miqbas PDF / Altafsir ──
                 elif "tafsir" in s_type or "tafseer" in s_type:
                     tafsir_name = (
                         meta.get("En_tafsir_source")
@@ -375,28 +399,34 @@ class LangGraphService:
                     surah = meta.get("surah", "")
                     ayah = meta.get("ayah_number", "")
 
+                    t_lower = str(tafsir_name).lower()
+                    if "abbas" in t_lower or "miqbas" in t_lower or "miqbās" in t_lower:
+                        tafsir_url = "https://ia801904.us.archive.org/29/items/TafseerIbnAbbasR.aenglish_733/TafseerIbnAbbasR.aenglish.pdf"
+                    elif "jalalayn" in t_lower:
+                        tafsir_url = "https://www.altafsir.com"
+                    else:
+                        raw_url = _get_metadata_link(meta)
+                        tafsir_url = raw_url if (raw_url and "shorturl.at" not in raw_url) else None
+
                     source_context += (
                         f"{i+1}.\n"
                         f"Tafsir Commentary: {tafsir_name}\n"
                         f"Surah: {surah} (Ayah {ayah})\n"
                         f"Commentary Text: {content}\n"
                     )
-                    if source_url:
-                        source_context += f"Source URL: {source_url}\n"
+                    if tafsir_url:
+                        source_context += f"Source URL: {tafsir_url}\n"
                     source_context += "\n"
 
-                # ── General Islamic Info ──────────────────────────
+                # ── 4. General Islamic Info: Show ONLY book names from chunk metadata (no URL) ──
                 else:
                     book_name = meta.get("book_name") or meta.get("title") or "Islamic Knowledge Base"
 
                     source_context += (
                         f"{i+1}.\n"
                         f"Book / Source: {book_name}\n"
-                        f"Content: {content}\n"
+                        f"Content: {content}\n\n"
                     )
-                    if source_url:
-                        source_context += f"Source URL: {source_url}\n"
-                    source_context += "\n"
 
             context_sections.append(source_context)
 
