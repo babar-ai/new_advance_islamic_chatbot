@@ -285,7 +285,47 @@ export default function MessageBubble({
       }
     });
 
-    return sources;
+    // Post-process: auto-fill missing URLs
+    const HADITH_URLS: Record<string, string> = {
+      "Sahih al-Bukhari": "https://archive.org/details/sahih-al-bukhari-vol.-3-1773-2737_202111/Sahih%20al%20Bukhari%20Vol.%201%20-%201-875/",
+      "Sahih Muslim": "https://archive.org/details/sahih-muslim-arabic-english-full/sahih-muslim-english-vol-1/",
+      "Sunan Abu Dawood": "https://archive.org/details/sunan-abu-dawud-vol.-1-1160_202111/Sunan%20Abu%20Dawud%20Vol.%201%20-%201-1160/",
+      "Sunan Abu Dawud": "https://archive.org/details/sunan-abu-dawud-vol.-1-1160_202111/Sunan%20Abu%20Dawud%20Vol.%201%20-%201-1160/",
+      "Jami at-Tirmidhi": "https://archive.org/details/jami-at-tirmidhi-vol.-6-3291-3956_202111/Jami%20at%20Tirmidhi%20Vol.%201%20-%201-543/",
+      "Jami' at-Tirmidhi": "https://archive.org/details/jami-at-tirmidhi-vol.-6-3291-3956_202111/Jami%20at%20Tirmidhi%20Vol.%201%20-%201-543/",
+      "Sunan ibn Majah": "https://archive.org/details/sunan-ibn-majah-arabic-english-full/sunan-ibn-majah-english-vol-1/",
+      "Sunan Ibn Majah": "https://archive.org/details/sunan-ibn-majah-arabic-english-full/sunan-ibn-majah-english-vol-1/",
+      "Sunan al-Nasa'i": "https://archive.org/details/sunan-nasai-arabic-english-full/sunan-nasai-english-vol-1/page/n3/mode/2up",
+      "Sunan an-Nasa'i": "https://archive.org/details/sunan-nasai-arabic-english-full/sunan-nasai-english-vol-1/page/n3/mode/2up",
+    };
+
+    return sources.map((src) => {
+      if (src.url) {
+        // Remove any stale shorturl.at links
+        if (src.url.includes("shorturl.at")) {
+          return { ...src, url: "https://www.altafsir.com" };
+        }
+        return src;
+      }
+      // Auto-generate quran.com URL from Surah citation
+      const verseMatch = src.name.match(/\((\d+:\d+(?:-\d+)?)\)/);
+      if (verseMatch && /surah|qur['']?an|quran/i.test(src.name)) {
+        return { ...src, url: `https://quran.com/${verseMatch[1]}` };
+      }
+      // Also match bare verse like "2:153" without Surah prefix
+      const bareVerseMatch = src.name.match(/^(\d+:\d+(?:-\d+)?)$/);
+      if (bareVerseMatch) {
+        return { ...src, url: `https://quran.com/${bareVerseMatch[1]}` };
+      }
+      // Map Hadith collection name to archive.org URL
+      for (const [key, url] of Object.entries(HADITH_URLS)) {
+        if (src.name.toLowerCase().includes(key.toLowerCase())) {
+          return { ...src, url };
+        }
+      }
+      return src;
+    });
+
   }, [message.content, isUser]);
 
   const handleCopy = async () => {
@@ -394,13 +434,12 @@ export default function MessageBubble({
                   );
                 }
 
-                // 2. Dedicated Source Citation Badge (Modern Sans-Serif, Upright, Tagged)
-                // Distinctly different from the verse/Hadith serif italic style
+                // 2. Dedicated Source Citation Badge - clickable link if URL present
                 if (isSourceCitation(text)) {
                   let cleanSource = text
                     .trim()
                     .replace(
-                      /^(?:\*{0,2}(?:Source|Sources|Reference|References|Tafsir Source|Tafseer Source|Tafsir|Tafseer)\*{0,2}\s*:|—|–|-)\s*/i,
+                      /^(?:\*{0,2}(?:Source|Sources|Reference|References|Tafsir Source|Tafseer Source|Tafsir|Tafseer)\*{0,2}\s*:|—|–|-)?\s*/i,
                       ""
                     )
                     .replace(/^(?:Source|Sources|Reference|References)\s*:\s*/i, "")
@@ -417,11 +456,60 @@ export default function MessageBubble({
                     );
                   }
 
-                  return (
-                    <div className="my-2.5 not-prose block">
-                      <div className="source-citation-badge inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/70 text-[#084C3E] dark:text-emerald-300 font-sans not-italic text-xs sm:text-[13px] font-semibold tracking-wide shadow-2xs">
+                  // Extract URL from markdown link pattern [Label](URL) in cleanSource
+                  let sourceUrl: string | null = null;
+                  let sourceLabel: React.ReactNode = stripSourceLabel(children);
+
+                  const mdLinkMatch = cleanSource.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+                  if (mdLinkMatch) {
+                    sourceLabel = mdLinkMatch[1];
+                    sourceUrl = mdLinkMatch[2];
+                  } else {
+                    // Also check the raw text children for a markdown link
+                    const rawText = typeof children === "string"
+                      ? children
+                      : getNodeText(children);
+                    const rawMdMatch = rawText.match(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
+                    if (rawMdMatch) {
+                      sourceLabel = rawMdMatch[1];
+                      sourceUrl = rawMdMatch[2];
+                    } else {
+                      // Auto-generate quran.com link from "Surah Name (X:Y)" pattern
+                      const versePattern = cleanSource.match(/\((\d+:\d+(?:-\d+)?)\)/);
+                      if (versePattern && /surah|qur['']?an|quran/i.test(cleanSource)) {
+                        sourceUrl = `https://quran.com/${versePattern[1]}`;
+                      }
+                      // Fix any remaining shorturl.at links — replace with altafsir.com
+                      if (sourceUrl && sourceUrl.includes("shorturl.at")) {
+                        sourceUrl = "https://www.altafsir.com";
+                      }
+                    }
+                  }
+
+                  const badgeContent = (
+                    <>
+                      <svg
+                        className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+                        />
+                      </svg>
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700/80 dark:text-emerald-400/80">
+                        Source:
+                      </span>
+                      <span className="font-semibold text-slate-800 dark:text-emerald-200">
+                        {sourceLabel}
+                      </span>
+                      {sourceUrl && (
                         <svg
-                          className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0"
+                          className="w-3 h-3 opacity-60 shrink-0"
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -430,16 +518,29 @@ export default function MessageBubble({
                             strokeLinecap="round"
                             strokeLinejoin="round"
                             strokeWidth={2}
-                            d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
                           />
                         </svg>
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700/80 dark:text-emerald-400/80">
-                          Source:
-                        </span>
-                        <span className="font-semibold text-slate-800 dark:text-emerald-200">
-                          {stripSourceLabel(children)}
-                        </span>
-                      </div>
+                      )}
+                    </>
+                  );
+
+                  return (
+                    <div className="my-2.5 not-prose block">
+                      {sourceUrl ? (
+                        <a
+                          href={sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="source-citation-badge inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/70 text-[#084C3E] dark:text-emerald-300 font-sans not-italic text-xs sm:text-[13px] font-semibold tracking-wide shadow-2xs hover:border-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors cursor-pointer"
+                        >
+                          {badgeContent}
+                        </a>
+                      ) : (
+                        <div className="source-citation-badge inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/70 text-[#084C3E] dark:text-emerald-300 font-sans not-italic text-xs sm:text-[13px] font-semibold tracking-wide shadow-2xs">
+                          {badgeContent}
+                        </div>
+                      )}
                     </div>
                   );
                 }
