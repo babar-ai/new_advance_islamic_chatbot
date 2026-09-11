@@ -43,3 +43,11 @@ demo_app.py
 linkedin_demo_script.md
 workflows/
 README.md
+
+# Frontend has its own Dockerfile and should not be copied into Python container
+frontend/
+
+# Large archive files
+*.tar.gz
+*.tar
+*.zip

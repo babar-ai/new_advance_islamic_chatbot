@@ -16,6 +16,7 @@ services:
       - ./logs:/app/logs
       - ./services:/app/services:ro
       - ./utils:/app/utils:ro
+      - ./backend:/app/backend
       - ./application.py:/app/application.py:ro
     depends_on:
       qdrant:
