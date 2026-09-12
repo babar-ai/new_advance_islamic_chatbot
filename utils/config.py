@@ -37,6 +37,15 @@ class Settings(BaseSettings):
     HYBRID_SEARCH_ENABLED: bool = True
 
 
+    # Reranking Settings
+    # RERANKER_ENABLED: set to True to activate FlashRank cross-encoder reranking
+    # after vector retrieval. Improves precision at the cost of ~50-150ms latency.
+    RERANKER_ENABLED: bool = True
+    # RERANKER_SCORE_THRESHOLD: drop documents whose FlashRank relevance score is
+    # below this value. Range 0.0–1.0. Set to 0.0 to keep all reranked results.
+    RERANKER_SCORE_THRESHOLD: float = 0.0
+
+
     # Redis Connection & Caching Settings (Layer 1)
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379

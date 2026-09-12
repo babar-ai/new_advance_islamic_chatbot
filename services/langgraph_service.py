@@ -1,5 +1,6 @@
 
 import asyncio
+import re
 from typing import Optional, List, Dict, Any
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -15,17 +16,70 @@ from utils.custom_logger import setup_logger
 
 from langsmith import traceable
 
+from services import rerank_service
+
 
 logger = setup_logger(__name__)
 
 
-# Retrieval limits per source type
-SOURCE_LIMITS = {
-    "quran": 5,
-    "hadith": 6,
-    "tafseer": 3,
-    "general_islamic_info": 10,
+# How many candidates to fetch from Qdrant (3-4× the final limit gives the
+# reranker enough choices without blowing up RAM or latency).
+SOURCE_RETRIEVE_LIMITS = {
+    "quran": 15,
+    "hadith": 18,
+    "tafseer": 15,
+    "general_islamic_info": 20,
 }
+
+# Final number of documents kept per source AFTER reranking.
+# When reranking is disabled these are used directly as retrieval limits.
+SOURCE_FINAL_LIMITS = {
+    "quran": 3,
+    "hadith": 5,
+    "tafseer": 2,
+    "general_islamic_info": 6,
+}
+
+
+def _extract_source_url(meta: dict) -> Optional[str]:
+    """Extracts authentic source URL directly from document metadata payload."""
+    if not isinstance(meta, dict):
+        return None
+    for key in (
+        "En_source_url",
+        "source_url",
+        "url",
+        "link",
+        "source_link",
+        "Tafsir_Source",
+    ):
+        val = meta.get(key)
+        if val and isinstance(val, str) and val.strip().startswith(("http://", "https://")):
+            return val.strip()
+    return None
+
+
+
+def _remove_sources_section(text: str) -> str:
+    """Strips out redundant '### 📚 Sources & References' section from the final response."""
+    if not text:
+        return text
+    header_pattern = r"(?:^|\n)(?:#{1,4}\s*)?(?:📚\s*)?Sources\s*(?:&|and)\s*References\s*:?\s*(?:\r?\n|$)"
+    match = re.search(header_pattern, text, re.IGNORECASE)
+    if not match:
+        return text
+
+    before = text[:match.start()].rstrip()
+    after = text[match.end():]
+
+    disclaimer_match = re.search(
+        r"(?:^|\n)(?:[*_>\s]*)(?:And\s+Allah\s+knows\s+best|وَاللَّ?هُ\s*أَعْلَمُ|Please\s+(?:always\s+)?consult\s+qualified\s+scholars)[\s\S]*$",
+        after,
+        re.IGNORECASE,
+    )
+    if disclaimer_match:
+        return f"{before}\n\n{disclaimer_match.group(0).strip()}"
+    return before
 
 
 class LangGraphService:
@@ -64,24 +118,29 @@ class LangGraphService:
         # ── BM25 sparse encoder (fastembed) for hybrid search ─────────
         # Loaded once at startup and shared across all retrieval calls.
         # query_embed() is called per-request in _parallel_retrieve.
+
         self._bm25_model = None
+
         if settings.HYBRID_SEARCH_ENABLED:
+
             try:
                 from fastembed.sparse.bm25 import Bm25
                 self._bm25_model = Bm25(model_name="Qdrant/bm25", language="english")
                 logger.info("BM25 sparse encoder (fastembed) loaded for hybrid search.")
+
             except ImportError:
                 logger.warning(
                     "fastembed is not installed — hybrid search disabled. "
                     "Run: pip install fastembed"
                 )
+
             except Exception as e:
                 logger.warning("Failed to load BM25 model: %s — hybrid search disabled.", e)
 
         self.graph = self._create_graph()
 
 
-
+ 
     # ─────────────────────────────────────────────────────────
     # Node 1: Classify user query + web search (concurrent)
     # ─────────────────────────────────────────────────────────
@@ -118,17 +177,13 @@ class LangGraphService:
                 state.classification_reasoning = classification.reasoning
 
 
-                if hasattr(classification, "filters") and classification.filters:       #define filters as required output in pydantic schema
-
-                    filter_dict = classification.filters.model_dump(exclude_none=True)   # This converts your Pydantic model into a normal Python dictionary.
-
-                    state.filters = filter_dict if filter_dict else None
-
+                if hasattr(classification, "filters") and classification.filters:
+                    filter_dict = classification.filters.model_dump(exclude_none=True)
+                    setattr(state, "filters", filter_dict if filter_dict else None)
                 else:
-                    state.filters = None
+                    setattr(state, "filters", None)
 
-
-                logger.info(f"Classification: sources={state.required_sources}, reasoning={state.classification_reasoning}, filters={state.filters}")
+                logger.info(f"Classification: sources={state.required_sources}, reasoning={state.classification_reasoning}, filters={getattr(state, 'filters', None)}")
             
             else:
                 logger.warning(f"Classification failed: {classification_response['message']}. Falling back to general.")
@@ -152,6 +207,7 @@ class LangGraphService:
     # ─────────────────────────────────────────────────────────
 
     def _parallel_retrieve(self, state: LangGraphState) -> LangGraphState:
+
         """
         Second node: Dispatches Qdrant searches for all required sources
         concurrently using the pre-computed query embedding.
@@ -163,18 +219,20 @@ class LangGraphService:
 
         Falls back to dense-only search if hybrid fails or is disabled.
         """
+    
         if not state.query_embedding:
             logger.error("No query embedding available for retrieval")
             state.error_message = "Query embedding missing"
             return state
-
+ 
         required_sources = state.required_sources
 
         if not required_sources:
             logger.warning("No required sources identified, defaulting to general_islamic_info")
             required_sources = ["general_islamic_info"]
 
-        logger.info(f"Starting parallel retrieval for sources: {required_sources}, filters: {state.filters}")
+        filters = getattr(state, "filters", None)
+        logger.info(f"Starting parallel retrieval for sources: {required_sources}, filters: {filters}")
 
         # ── Compute BM25 sparse vector for the query once (reused for all sources) ──
         sparse_indices: List[int] = []
@@ -208,8 +266,12 @@ class LangGraphService:
                 logger.warning(f"No collection configured for source: {source}")
                 continue
 
-            limit = SOURCE_LIMITS.get(source, 5)
-            qdrant_filter = self.qdrant_service.build_qdrant_filter(collection_name, state.filters)
+            # Oversample when reranking is enabled; otherwise use final limits directly.
+            if settings.RERANKER_ENABLED:
+                limit = SOURCE_RETRIEVE_LIMITS.get(source, 15)
+            else:
+                limit = SOURCE_FINAL_LIMITS.get(source, 5)
+            qdrant_filter = self.qdrant_service.build_qdrant_filter(collection_name, filters)
 
             if use_hybrid:
                 # Hybrid search: dense + BM25 sparse via RRF
@@ -277,30 +339,50 @@ class LangGraphService:
 
 
     # ─────────────────────────────────────────────────────────
+    # Node 2.5: Rerank retrieved documents (optional)
+    # ─────────────────────────────────────────────────────────
+    def _rerank_documents(self, state: LangGraphState) -> LangGraphState:
+        """
+        Optional node: applies FlashRank cross-encoder reranking to the
+        retrieved documents for each source, keeping only the top-K most
+        relevant results before they are assembled into the LLM context.
+
+        Mutates state.retrieved_documents in-place — no extra state field needed.
+        Falls back silently to top-K truncation if FlashRank is unavailable.
+        """
+        if not settings.RERANKER_ENABLED:
+            return state
+
+        for source, documents in state.retrieved_documents.items():
+            if not documents:
+                continue
+
+            top_n = SOURCE_FINAL_LIMITS.get(source, 5)
+
+            reranked = rerank_service.rerank(
+                query=state.user_query,
+                documents=documents,
+                top_n=top_n,
+                score_threshold=settings.RERANKER_SCORE_THRESHOLD,
+            )
+
+            state.retrieved_documents[source] = reranked
+            logger.info(
+                "Reranked '%s': %d → %d docs", source, len(documents), len(reranked)
+            )
+
+        return state
+
+
+    # ─────────────────────────────────────────────────────────
     # Shared helper: Build context string from state
     # ─────────────────────────────────────────────────────────
     def _build_context(self, state: LangGraphState) -> str:
         """
         Compiles all retrieved documents + web search results into a single context string.
-        Source links are strictly extracted from the Qdrant metadata payload if available.
-        If no link exists in the metadata, no unverified external URL is added.
+        Source links are dynamically extracted directly from the Qdrant metadata payload.
         """
         context_sections = []
-
-        def _get_metadata_link(meta: dict) -> Optional[str]:
-            for key in (
-                "En_source_url",
-                "Tafsir_Source",
-                "source_url",
-                "url",
-                "link",
-                "source_link",
-                "Russain_tafaseer_source_url",
-            ):
-                val = meta.get(key)
-                if val and isinstance(val, str) and val.strip().startswith(("http://", "https://")):
-                    return val.strip()
-            return None
 
         # 1. Add web search results with URLs
         if state.web_search_results:
@@ -314,24 +396,16 @@ class LangGraphService:
                     f"Title: {title}\n"
                     f"Content: {content}\n"
                 )
-                if url:
+                DISALLOWED_DOMAINS = (
+                    "facebook.com", "instagram.com", "twitter.com", "x.com",
+                    "reddit.com", "pinterest.com", "tiktok.com", "youtube.com"
+                )
+                if url and not any(d in url.lower() for d in DISALLOWED_DOMAINS):
                     web_context += f"Source URL: {url}\n"
                 web_context += "\n"
             context_sections.append(web_context)
 
-        # Primary 6 Hadith collection authentic source URLs (Archive.org verified editions)
-        HADITH_SOURCE_URLS = {
-            "bukhari": "https://archive.org/details/sahih-al-bukhari-vol.-3-1773-2737_202111/Sahih%20al-Bukhari%20Vol.%201%20-%201-875/",
-            "muslim": "https://archive.org/details/sahih-muslim-arabic-english-full/sahih-muslim-english-vol-1/",
-            "dawud": "https://archive.org/details/sunan-abu-dawud-vol.-1-1-1160_202111/Sunan%20Abu%20Dawud%20Vol.%201%20-%201-1160/",
-            "dawood": "https://archive.org/details/sunan-abu-dawud-vol.-1-1-1160_202111/Sunan%20Abu%20Dawud%20Vol.%201%20-%201-1160/",
-            "tirmidhi": "https://archive.org/details/jami-at-tirmidhi-vol.-6-3291-3956_202111/Jami%20at-Tirmidhi%20Vol.%201%20-%201-543/",
-            "tirmizi": "https://archive.org/details/jami-at-tirmidhi-vol.-6-3291-3956_202111/Jami%20at-Tirmidhi%20Vol.%201%20-%201-543/",
-            "majah": "https://archive.org/details/sunan-ibn-majah-arabic-english-full/sunan-ibn-majah-english-vol-1/",
-            "nasa": "https://archive.org/details/sunan-nasai-arabic-english-full/sunan-nasai-english-vol-1/page/n3/mode/2up",
-        }
-
-        # 2. Add retrieved documents by source, applying accurate source link rules
+        # 2. Add retrieved documents by source, extracting authentic source links directly from metadata
         for source_type, documents in state.retrieved_documents.items():
             if not documents:
                 continue
@@ -367,17 +441,11 @@ class LangGraphService:
                         f"Source URL: {quran_url}\n\n"
                     )
 
-                # ── 2. Hadith Collection: Primary 6 Hadith Sources mapped to verified editions ──
+                # ── 2. Hadith Collection: Dynamic extraction from chunk metadata ──
                 elif "hadith" in s_type:
-                    title = meta.get("title", meta.get("book_name", "Hadith Collection"))
+                    title = meta.get("title") or meta.get("book_name") or "Hadith Collection"
                     narrator = meta.get("narrator", "")
-
-                    hadith_url = None
-                    t_lower = title.lower()
-                    for k, u in HADITH_SOURCE_URLS.items():
-                        if k in t_lower:
-                            hadith_url = u
-                            break
+                    source_url = _extract_source_url(meta)
 
                     source_context += (
                         f"{i+1}.\n"
@@ -385,28 +453,20 @@ class LangGraphService:
                         f"Narrator: {narrator}\n"
                         f"Hadith Text: {content}\n"
                     )
-                    if hadith_url:
-                        source_context += f"Source URL: {hadith_url}\n"
+                    if source_url:
+                        source_context += f"Source URL: {source_url}\n"
                     source_context += "\n"
 
-                # ── 3. Tafsir Collection: Tanwir al-Miqbas PDF / Altafsir ──
+                # ── 3. Tafsir Collection: Dynamic extraction from chunk metadata ──
                 elif "tafsir" in s_type or "tafseer" in s_type:
                     tafsir_name = (
                         meta.get("En_tafsir_source")
                         or meta.get("tafsir_source")
-                        or "Classical Tafsir Commentary"
+                        or "Tafsir Commentary"
                     )
                     surah = meta.get("surah", "")
                     ayah = meta.get("ayah_number", "")
-
-                    t_lower = str(tafsir_name).lower()
-                    if "abbas" in t_lower or "miqbas" in t_lower or "miqbās" in t_lower:
-                        tafsir_url = "https://ia801904.us.archive.org/29/items/TafseerIbnAbbasR.aenglish_733/TafseerIbnAbbasR.aenglish.pdf"
-                    elif "jalalayn" in t_lower:
-                        tafsir_url = "https://www.altafsir.com"
-                    else:
-                        raw_url = _get_metadata_link(meta)
-                        tafsir_url = raw_url if (raw_url and "shorturl.at" not in raw_url) else None
+                    source_url = _extract_source_url(meta)
 
                     source_context += (
                         f"{i+1}.\n"
@@ -414,19 +474,23 @@ class LangGraphService:
                         f"Surah: {surah} (Ayah {ayah})\n"
                         f"Commentary Text: {content}\n"
                     )
-                    if tafsir_url:
-                        source_context += f"Source URL: {tafsir_url}\n"
+                    if source_url:
+                        source_context += f"Source URL: {source_url}\n"
                     source_context += "\n"
 
-                # ── 4. General Islamic Info: Show ONLY book names from chunk metadata (no URL) ──
+                # ── 4. General Islamic Info: Dynamic extraction from chunk metadata ──
                 else:
                     book_name = meta.get("book_name") or meta.get("title") or "Islamic Knowledge Base"
+                    source_url = _extract_source_url(meta)
 
                     source_context += (
                         f"{i+1}.\n"
                         f"Book / Source: {book_name}\n"
-                        f"Content: {content}\n\n"
+                        f"Content: {content}\n"
                     )
+                    if source_url:
+                        source_context += f"Source URL: {source_url}\n"
+                    source_context += "\n"
 
             context_sections.append(source_context)
 
@@ -458,7 +522,7 @@ class LangGraphService:
             response = await self.openai_service.agenerate_response(state.user_query, full_context)
 
             if response["status"] == "success":
-                state.final_response = response["message"]
+                state.final_response = _remove_sources_section(response["message"])
                 logger.info("Response generated successfully")
             else:
                 state.final_response = f"I apologize, but I encountered an error while generating the response: {response['message']}"
@@ -513,18 +577,23 @@ class LangGraphService:
     # ─────────────────────────────────────────────────────────
     def _create_graph(self):
         """
-        Build the optimized 3-node LangGraph:
-            classify_and_search → parallel_retrieve → generate_response → END
+        Build the 4-node LangGraph pipeline:
+            classify_and_search → parallel_retrieve → rerank_documents → generate_response → END
+
+        rerank_documents is a thin node that cross-encoder re-scores and trims
+        the retrieved candidates; it is a no-op when RERANKER_ENABLED=False.
         """
         workflow = StateGraph(LangGraphState)
 
         workflow.add_node("classify_and_search", self._classify_and_search)
         workflow.add_node("parallel_retrieve", self._parallel_retrieve)
+        workflow.add_node("rerank_documents", self._rerank_documents)
         workflow.add_node("generate_response", self._generate_response)
 
         workflow.set_entry_point("classify_and_search")
         workflow.add_edge("classify_and_search", "parallel_retrieve")
-        workflow.add_edge("parallel_retrieve", "generate_response")
+        workflow.add_edge("parallel_retrieve", "rerank_documents")
+        workflow.add_edge("rerank_documents", "generate_response")
         workflow.add_edge("generate_response", END)
 
         return workflow.compile()
@@ -612,10 +681,8 @@ class LangGraphService:
                         yield {"token": msg.content, "done": False}
 
             logger.info("[STREAM] Response streamed successfully via LangGraph native astream")
-            yield {"done": True, "full_response": full_response}
+            yield {"done": True, "full_response": _remove_sources_section(full_response)}
 
         except Exception as e:
             logger.error(f"Error in query_stream: {e}")
             yield {"done": True, "full_response": f"I apologize, but I encountered an error: {str(e)}"}
-
-

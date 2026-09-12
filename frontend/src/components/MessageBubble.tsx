@@ -26,6 +26,21 @@ function getNodeText(node: React.ReactNode): string {
   return "";
 }
 
+// Helper to recursively check if a React node contains an anchor (<a>) tag
+function hasDescendantAnchor(node: React.ReactNode): boolean {
+  if (!node || typeof node !== "object") return false;
+  if (Array.isArray(node)) {
+    return node.some(hasDescendantAnchor);
+  }
+  if (React.isValidElement(node)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const props = node.props as any;
+    if (node.type === "a" || props?.href) return true;
+    return hasDescendantAnchor(props?.children);
+  }
+  return false;
+}
+
 // Helper to strip leading "Source:" label while preserving React nodes (like <a> links)
 function stripSourceLabel(children: React.ReactNode): React.ReactNode {
   if (typeof children === "string") {
@@ -139,6 +154,188 @@ function isSourceCitation(text: string): boolean {
   return false;
 }
 
+const TAFSIR_IBN_ABBAS_PDF =
+  "https://ia801904.us.archive.org/29/items/TafseerIbnAbbasR.aenglish_733/TafseerIbnAbbasR.aenglish.pdf";
+const TAFSIR_JALALAYN_PDF =
+  "https://aqeedeh.com/book_files/pdf/en/tafsir-al-jalalain-Eng-PDF.pdf";
+
+const HADITH_SOURCE_URLS: Record<string, string> = {
+  bukhari:
+    "https://archive.org/details/sahih-al-bukhari-vol.-3-1773-2737_202111/Sahih%20al-Bukhari%20Vol.%201%20-%201-875/",
+  muslim:
+    "https://archive.org/details/sahih-muslim-arabic-english-full/sahih-muslim-english-vol-1/",
+  "abu dawood":
+    "https://archive.org/details/sunan-abu-dawud-vol.-1-1-1160_202111/Sunan%20Abu%20Dawud%20Vol.%201%20-%201-1160/",
+  "abu dawud":
+    "https://archive.org/details/sunan-abu-dawud-vol.-1-1-1160_202111/Sunan%20Abu%20Dawud%20Vol.%201%20-%201-1160/",
+  "abi dawud":
+    "https://archive.org/details/sunan-abu-dawud-vol.-1-1-1160_202111/Sunan%20Abu%20Dawud%20Vol.%201%20-%201-1160/",
+  dawud:
+    "https://archive.org/details/sunan-abu-dawud-vol.-1-1-1160_202111/Sunan%20Abu%20Dawud%20Vol.%201%20-%201-1160/",
+  dawood:
+    "https://archive.org/details/sunan-abu-dawud-vol.-1-1-1160_202111/Sunan%20Abu%20Dawud%20Vol.%201%20-%201-1160/",
+  tirmidhi:
+    "https://archive.org/details/jami-at-tirmidhi-vol.-6-3291-3956_202111/Jami%20at-Tirmidhi%20Vol.%201%20-%201-543/",
+  tirmizi:
+    "https://archive.org/details/jami-at-tirmidhi-vol.-6-3291-3956_202111/Jami%20at-Tirmidhi%20Vol.%201%20-%201-543/",
+  majah:
+    "https://archive.org/details/sunan-ibn-majah-arabic-english-full/sunan-ibn-majah-english-vol-1/",
+  "nasa'i":
+    "https://archive.org/details/sunan-nasai-arabic-english-full/sunan-nasai-english-vol-1/page/n3/mode/2up",
+  nasai:
+    "https://archive.org/details/sunan-nasai-arabic-english-full/sunan-nasai-english-vol-1/page/n3/mode/2up",
+  "nasa’i":
+    "https://archive.org/details/sunan-nasai-arabic-english-full/sunan-nasai-english-vol-1/page/n3/mode/2up",
+};
+
+const GENERAL_BOOK_URLS: Record<string, string> = {
+  raheeq: "https://archive.org/details/TheSealedNectar_201509",
+  makhtum: "https://archive.org/details/TheSealedNectar_201509",
+  nectar: "https://archive.org/details/TheSealedNectar_201509",
+  qasas: "https://archive.org/details/StoriesOfTheProphetsByIbnKathir",
+  prophet: "https://archive.org/details/StoriesOfTheProphetsByIbnKathir",
+  anbiya: "https://archive.org/details/StoriesOfTheProphetsByIbnKathir",
+  tawheed: "https://archive.org/details/KitabAt-tawhidTheBookOfMonotheism",
+  tawhid: "https://archive.org/details/KitabAt-tawhidTheBookOfMonotheism",
+  monotheism: "https://archive.org/details/KitabAt-tawhidTheBookOfMonotheism",
+  fiqh: "https://archive.org/details/AlFiqhAlAkbarWithCommentary",
+  akbar: "https://archive.org/details/AlFiqhAlAkbarWithCommentary",
+  seerah: "https://archive.org/details/TheSealedNectar_201509",
+  biography: "https://archive.org/details/TheSealedNectar_201509",
+};
+
+export function resolveIslamicSourceUrl(
+  text: string,
+  currentUrl?: string | null
+): string | null {
+  const lower = text.toLowerCase();
+
+  // 1. Tafsir Sources
+  if (lower.includes("jalalayn") || lower.includes("jalalain")) {
+    return TAFSIR_JALALAYN_PDF;
+  }
+  if (
+    lower.includes("tafsir") ||
+    lower.includes("tafseer") ||
+    lower.includes("ibn abbas") ||
+    lower.includes("ibn kathir") ||
+    lower.includes("tanwir") ||
+    lower.includes("miqbas") ||
+    lower.includes("scholarly context")
+  ) {
+    return TAFSIR_IBN_ABBAS_PDF;
+  }
+
+  // 2. Primary 6 Hadith Sources (always prioritize verified Archive.org over web links)
+  for (const [key, url] of Object.entries(HADITH_SOURCE_URLS)) {
+    if (lower.includes(key)) {
+      return url;
+    }
+  }
+
+  // 2b. Any other Hadith citation (e.g. "hadith", "sunnah", "prophetic tradition", "casa de hadith")
+  if (
+    lower.includes("hadith") ||
+    lower.includes("sunnah") ||
+    lower.includes("prophetic") ||
+    lower.includes("tradition") ||
+    lower.includes("narrated") ||
+    lower.includes("riyad") ||
+    lower.includes("bayan")
+  ) {
+    return HADITH_SOURCE_URLS.bukhari;
+  }
+
+  // 3. General Islamic Books / Seerah / Biographies
+  for (const [key, url] of Object.entries(GENERAL_BOOK_URLS)) {
+    if (lower.includes(key)) {
+      return url;
+    }
+  }
+
+  // 4. Quran Verse Link: match any (surah:ayah) or (X:Y)
+  const verseMatch =
+    text.match(/\((\d+:\d+(?:-\d+)?)\)/) ||
+    text.match(/\b(\d+:\d+(?:-\d+)?)\b/);
+  if (verseMatch) {
+    return `https://quran.com/${verseMatch[1]}`;
+  }
+  if (
+    lower.includes("surah") ||
+    lower.includes("quran") ||
+    lower.includes("qur'an") ||
+    lower.includes("qur’an")
+  ) {
+    return "https://quran.com";
+  }
+
+  // 5. Valid existing authentic URL check
+  if (currentUrl) {
+    if (
+      currentUrl.includes("aqeedeh.com") ||
+      currentUrl.includes("jalalain") ||
+      currentUrl.includes("jalalayn") ||
+      currentUrl.includes("altafsir.com")
+    ) {
+      return TAFSIR_JALALAYN_PDF;
+    }
+    if (
+      currentUrl.includes("shorturl.at") ||
+      currentUrl.includes("basitah.com")
+    ) {
+      return TAFSIR_IBN_ABBAS_PDF;
+    }
+    const cLower = currentUrl.toLowerCase();
+    for (const [key, url] of Object.entries(HADITH_SOURCE_URLS)) {
+      if (cLower.includes(key)) {
+        return url;
+      }
+    }
+    for (const [key, url] of Object.entries(GENERAL_BOOK_URLS)) {
+      if (cLower.includes(key)) {
+        return url;
+      }
+    }
+    if (
+      currentUrl.includes("archive.org") ||
+      currentUrl.includes("quran.com") ||
+      currentUrl.includes("aqeedeh.com")
+    ) {
+      return currentUrl;
+    }
+  }
+
+  // Not a verified Islamic source
+  return null;
+}
+
+// Helper to remove the redundant "Sources & References" section from the message body
+function removeSourcesSection(content: string): string {
+  if (!content) return "";
+
+  // Pattern matching "### 📚 Sources & References", "📚 Sources & References", etc.
+  const headerRegex = /(?:^|\n)(?:#{1,4}\s*)?(?:📚\s*)?Sources\s*(?:&|and)\s*References\s*:?\s*(?:\r?\n|$)/i;
+  const match = content.match(headerRegex);
+  if (!match || match.index === undefined) return content;
+
+  const beforeHeader = content.substring(0, match.index).trimEnd();
+  // Strip any trailing horizontal rule (---) that preceded the Sources section
+  const cleanedBefore = beforeHeader.replace(/(?:\r?\n\s*[-—–*_]{2,}\s*)+$/, "").trimEnd();
+  const afterHeader = content.substring(match.index + match[0].length);
+
+  // Check if there is a closing Islamic disclaimer after the Sources & References section
+  const disclaimerMatch = afterHeader.match(
+    /(?:^|\n)(?:[*_>\s]*)(?:And\s+Allah\s+knows\s+best|وَاللَّ?هُ\s*أَعْلَمُ|Please\s+(?:always\s+)?consult\s+qualified\s+scholars)[^\n\r]*(?:\r?\n[\s\S]*)?$/i
+  );
+
+  if (disclaimerMatch && disclaimerMatch[0]) {
+    const disclaimer = disclaimerMatch[0].trim();
+    return `${cleanedBefore}\n\n${disclaimer}`;
+  }
+
+  return cleanedBefore;
+}
+
 export default function MessageBubble({
   message,
   onToggleSave,
@@ -153,7 +350,12 @@ export default function MessageBubble({
   // Pre-process content line-by-line to strictly decouple citations from quotes into distinct blocks
   const processedContent = useMemo(() => {
     if (isUser) return message.content;
-    const lines = message.content.split(/\r?\n/);
+    const stripped = removeSourcesSection(message.content || "");
+    const sanitized = stripped
+      .replace(/https?:\/\/shorturl\.at\/[a-zA-Z0-9_-]+/gi, TAFSIR_IBN_ABBAS_PDF)
+      .replace(/https?:\/\/(?:www\.)?basitah\.com[^\s\)\"\'<]*/gi, TAFSIR_IBN_ABBAS_PDF)
+      .replace(/https?:\/\/(?:www\.)?altafsir\.com[^\s\)\"\'<]*/gi, TAFSIR_JALALAYN_PDF);
+    const lines = sanitized.split(/\r?\n/);
     const newLines: string[] = [];
 
     for (let i = 0; i < lines.length; i++) {
@@ -285,47 +487,13 @@ export default function MessageBubble({
       }
     });
 
-    // Post-process: auto-fill missing URLs
-    const HADITH_URLS: Record<string, string> = {
-      "Sahih al-Bukhari": "https://archive.org/details/sahih-al-bukhari-vol.-3-1773-2737_202111/Sahih%20al%20Bukhari%20Vol.%201%20-%201-875/",
-      "Sahih Muslim": "https://archive.org/details/sahih-muslim-arabic-english-full/sahih-muslim-english-vol-1/",
-      "Sunan Abu Dawood": "https://archive.org/details/sunan-abu-dawud-vol.-1-1160_202111/Sunan%20Abu%20Dawud%20Vol.%201%20-%201-1160/",
-      "Sunan Abu Dawud": "https://archive.org/details/sunan-abu-dawud-vol.-1-1160_202111/Sunan%20Abu%20Dawud%20Vol.%201%20-%201-1160/",
-      "Jami at-Tirmidhi": "https://archive.org/details/jami-at-tirmidhi-vol.-6-3291-3956_202111/Jami%20at%20Tirmidhi%20Vol.%201%20-%201-543/",
-      "Jami' at-Tirmidhi": "https://archive.org/details/jami-at-tirmidhi-vol.-6-3291-3956_202111/Jami%20at%20Tirmidhi%20Vol.%201%20-%201-543/",
-      "Sunan ibn Majah": "https://archive.org/details/sunan-ibn-majah-arabic-english-full/sunan-ibn-majah-english-vol-1/",
-      "Sunan Ibn Majah": "https://archive.org/details/sunan-ibn-majah-arabic-english-full/sunan-ibn-majah-english-vol-1/",
-      "Sunan al-Nasa'i": "https://archive.org/details/sunan-nasai-arabic-english-full/sunan-nasai-english-vol-1/page/n3/mode/2up",
-      "Sunan an-Nasa'i": "https://archive.org/details/sunan-nasai-arabic-english-full/sunan-nasai-english-vol-1/page/n3/mode/2up",
-    };
-
-    return sources.map((src) => {
-      if (src.url) {
-        // Remove any stale shorturl.at links
-        if (src.url.includes("shorturl.at")) {
-          return { ...src, url: "https://www.altafsir.com" };
-        }
-        return src;
-      }
-      // Auto-generate quran.com URL from Surah citation
-      const verseMatch = src.name.match(/\((\d+:\d+(?:-\d+)?)\)/);
-      if (verseMatch && /surah|qur['']?an|quran/i.test(src.name)) {
-        return { ...src, url: `https://quran.com/${verseMatch[1]}` };
-      }
-      // Also match bare verse like "2:153" without Surah prefix
-      const bareVerseMatch = src.name.match(/^(\d+:\d+(?:-\d+)?)$/);
-      if (bareVerseMatch) {
-        return { ...src, url: `https://quran.com/${bareVerseMatch[1]}` };
-      }
-      // Map Hadith collection name to archive.org URL
-      for (const [key, url] of Object.entries(HADITH_URLS)) {
-        if (src.name.toLowerCase().includes(key.toLowerCase())) {
-          return { ...src, url };
-        }
-      }
-      return src;
-    });
-
+    // Post-process: resolve URLs and filter strictly to authentic Islamic sources
+    return sources
+      .map((src) => ({
+        ...src,
+        url: resolveIslamicSourceUrl(src.name, src.url) || undefined,
+      }))
+      .filter((src): src is { name: string; url: string } => Boolean(src.url));
   }, [message.content, isUser]);
 
   const handleCopy = async () => {
@@ -458,33 +626,32 @@ export default function MessageBubble({
 
                   // Extract URL from markdown link pattern [Label](URL) in cleanSource
                   let sourceUrl: string | null = null;
-                  let sourceLabel: React.ReactNode = stripSourceLabel(children);
-
                   const mdLinkMatch = cleanSource.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
                   if (mdLinkMatch) {
-                    sourceLabel = mdLinkMatch[1];
                     sourceUrl = mdLinkMatch[2];
                   } else {
-                    // Also check the raw text children for a markdown link
                     const rawText = typeof children === "string"
                       ? children
                       : getNodeText(children);
                     const rawMdMatch = rawText.match(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
                     if (rawMdMatch) {
-                      sourceLabel = rawMdMatch[1];
                       sourceUrl = rawMdMatch[2];
-                    } else {
-                      // Auto-generate quran.com link from "Surah Name (X:Y)" pattern
-                      const versePattern = cleanSource.match(/\((\d+:\d+(?:-\d+)?)\)/);
-                      if (versePattern && /surah|qur['']?an|quran/i.test(cleanSource)) {
-                        sourceUrl = `https://quran.com/${versePattern[1]}`;
-                      }
-                      // Fix any remaining shorturl.at links — replace with altafsir.com
-                      if (sourceUrl && sourceUrl.includes("shorturl.at")) {
-                        sourceUrl = "https://www.altafsir.com";
-                      }
                     }
                   }
+
+                  // Extract pure text for source label to guarantee NO nested <a> tags inside the badge <a>
+                  const rawLabelText = getNodeText(children);
+                  const labelText =
+                    rawLabelText
+                      .replace(
+                        /^(?:\*{0,2}(?:Source|Sources|Reference|References|Tafsir Source|Tafseer Source|Tafsir|Tafseer)\*{0,2}\s*:|—|–|-)\s*/i,
+                        ""
+                      )
+                      .replace(/^\[([^\]]+)\]\([^\)]+\)$/, "$1")
+                      .trim() || cleanSource;
+
+                  // Auto-resolve to authentic Hadith, Tafsir, or Quran URL
+                  const safeSourceUrl = resolveIslamicSourceUrl(cleanSource, sourceUrl);
 
                   const badgeContent = (
                     <>
@@ -505,9 +672,9 @@ export default function MessageBubble({
                         Source:
                       </span>
                       <span className="font-semibold text-slate-800 dark:text-emerald-200">
-                        {sourceLabel}
+                        {labelText}
                       </span>
-                      {sourceUrl && (
+                      {safeSourceUrl && (
                         <svg
                           className="w-3 h-3 opacity-60 shrink-0"
                           fill="none"
@@ -527,9 +694,9 @@ export default function MessageBubble({
 
                   return (
                     <div className="my-2.5 not-prose block">
-                      {sourceUrl ? (
+                      {safeSourceUrl ? (
                         <a
-                          href={sourceUrl}
+                          href={safeSourceUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="source-citation-badge inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/70 text-[#084C3E] dark:text-emerald-300 font-sans not-italic text-xs sm:text-[13px] font-semibold tracking-wide shadow-2xs hover:border-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors cursor-pointer"
@@ -560,37 +727,49 @@ export default function MessageBubble({
                 </blockquote>
               ),
 
-              // List items with native support for clickable source links
+              // Standard list items (never turn regular bullet points into external links)
               li: ({ children }) => (
                 <li className="mb-1.5 text-slate-700 dark:text-slate-300 leading-relaxed text-sm sm:text-base">
                   {children}
                 </li>
               ),
 
-              // Clickable external links with modern emerald aesthetic and external link icon
-              a: ({ href, children }) => (
-                <a
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 underline underline-offset-2 decoration-emerald-500/40 hover:decoration-emerald-500 transition-colors"
-                >
-                  <span>{children}</span>
-                  <svg
-                    className="w-3.5 h-3.5 inline-block opacity-70"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+              // Clickable links: ONLY render as external links if they resolve to an authentic Islamic source link
+              a: ({ href, children }) => {
+                const linkText =
+                  typeof children === "string" ? children : getNodeText(children);
+                const safeHref = resolveIslamicSourceUrl(linkText, href);
+
+                // If not an authentic Islamic source, suppress link styling and external link icon
+                if (!safeHref) {
+                  return <span>{children}</span>;
+                }
+
+                const content = hasDescendantAnchor(children) ? linkText : children;
+                return (
+                  <a
+                    href={safeHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 underline underline-offset-2 decoration-emerald-500/40 hover:decoration-emerald-500 transition-colors cursor-pointer"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                    />
-                  </svg>
-                </a>
-              ),
+                    <span>{content}</span>
+                    <svg
+                      className="w-3.5 h-3.5 inline-block opacity-70"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                      />
+                    </svg>
+                  </a>
+                );
+              },
 
               // Headers with clear hierarchy
               h1: ({ children }) => (

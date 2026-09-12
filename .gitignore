@@ -23,6 +23,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+!**/.env.example
 *.env
 
 # SSH, AWS & SSL Private Keys (Never commit to GitHub)
@@ -59,7 +60,6 @@ yarn-error.log*
 # ==============================================================================
 qdrant_storage/
 qdrant_data/
-/backend/vector_store/storage
 redis_data/
 *.rdb
 *.sqlite
@@ -97,10 +97,34 @@ evaluation/results/*.json
 .idea/
 *.swp
 *.swo
+*.bak
+*.tmp
 .DS_Store
 Thumbs.db
 ehthumbs.db
 desktop.ini
+
+# ==============================================================================
+# Large Raw Data Files (vector store source data — too large for GitHub)
+# ==============================================================================
+backend/vector_store/storage/**/*.json
+backend/vector_store/storage/hadith/combined_data.json
+backend/vector_store/storage/tafsir/most_final_final_db_with_ru.json
+backend/vector_store/storage/quran/new_quran_translation_ru_en.json
+
+# ==============================================================================
+# One-off Ingestion & Payload Update Scripts (not part of the application)
+# ==============================================================================
+backend/vector_store/update_hadith_payload.py
+backend/vector_store/update_tafsir_payload.py
+
+# ==============================================================================
+# Reranker Model Cache (downloaded at runtime, not committed)
+# ==============================================================================
+/tmp/flashrank_cache/
+flashrank_cache/
+**/flashrank_cache/
+.cache/
 
 # Agents / IDE Internal State
 .agents/

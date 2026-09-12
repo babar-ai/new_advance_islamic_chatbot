@@ -212,6 +212,22 @@ class QdrantService:
         logger.info("✅ Upload complete for '%s' (Total points in Qdrant: %d)", collection_name, self.client.get_collection(collection_name).points_count)
 
 
+    def _collection_has_dense_vector(self, collection_name: str) -> bool:
+        """Check if the collection was configured with a named 'dense' vector."""
+        try:
+            if not hasattr(self, "_dense_vector_collections"):
+                self._dense_vector_collections = {}
+            if collection_name in self._dense_vector_collections:
+                return self._dense_vector_collections[collection_name]
+            info = self.client.get_collection(collection_name)
+            vectors_config = info.config.params.vectors
+            has_dense = isinstance(vectors_config, dict) and "dense" in vectors_config
+            self._dense_vector_collections[collection_name] = has_dense
+            return has_dense
+        except Exception:
+            return False
+
+
     def get_vector_store(self, collection_name: str, embeddings: Any) -> QdrantVectorStore:
         """Returns a LangChain QdrantVectorStore instance for querying an existing collection."""
         kwargs: dict = {
@@ -219,7 +235,7 @@ class QdrantService:
             "collection_name": collection_name,
             "embedding": embeddings,
         }
-        if collection_name != settings.CLASSIFICATION_CACHE_COLLECTION_NAME and settings.HYBRID_SEARCH_ENABLED:
+        if collection_name != settings.CLASSIFICATION_CACHE_COLLECTION_NAME and self._collection_has_dense_vector(collection_name):
             kwargs["vector_name"] = "dense"
         return QdrantVectorStore(**kwargs)
 
@@ -249,7 +265,7 @@ class QdrantService:
         Returns raw dicts with 'content', 'metadata', and 'score' keys.
         """
         try:
-            using_vector = "dense" if (collection_name != settings.CLASSIFICATION_CACHE_COLLECTION_NAME and settings.HYBRID_SEARCH_ENABLED) else None
+            using_vector = "dense" if (collection_name != settings.CLASSIFICATION_CACHE_COLLECTION_NAME and self._collection_has_dense_vector(collection_name)) else None
             query_kwargs: dict = {
                 "collection_name": collection_name,
                 "limit": limit,
@@ -261,19 +277,35 @@ class QdrantService:
                 query_kwargs["using"] = using_vector
 
             if hasattr(self.client, "query_points"):
-                res = self.client.query_points(
-                    query=query_vector,
-                    **query_kwargs,
-                )
+                try:
+                    res = self.client.query_points(
+                        query=query_vector,
+                        **query_kwargs,
+                    )
+                except Exception as e:
+                    if ("Not existing vector name error" in str(e) or "vector name" in str(e).lower()) and "using" in query_kwargs:
+                        logger.warning("Vector name '%s' not found in collection '%s'. Retrying unnamed vector.", using_vector, collection_name)
+                        query_kwargs.pop("using", None)
+                        res = self.client.query_points(query=query_vector, **query_kwargs)
+                    else:
+                        raise
                 results = res.points
             else:
                 if using_vector:
                     query_kwargs.pop("using", None)
                     query_kwargs["vector_name"] = using_vector
-                results = self.client.search(
-                    query_vector=query_vector,
-                    **query_kwargs,
-                )
+                try:
+                    results = self.client.search(
+                        query_vector=query_vector,
+                        **query_kwargs,
+                    )
+                except Exception as e:
+                    if ("Not existing vector name error" in str(e) or "vector name" in str(e).lower()) and "vector_name" in query_kwargs:
+                        logger.warning("Vector name '%s' not found in collection '%s'. Retrying unnamed vector.", using_vector, collection_name)
+                        query_kwargs.pop("vector_name", None)
+                        results = self.client.search(query_vector=query_vector, **query_kwargs)
+                    else:
+                        raise
 
             return [
                 {

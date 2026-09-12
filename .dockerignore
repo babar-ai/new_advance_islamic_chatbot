@@ -32,6 +32,16 @@ Thumbs.db
 # Secrets — injected via docker-compose env_file, never baked in
 .env
 .env.*
+*.pem
+*.key
+*.pub
+
+# Raw vector store source files (not needed inside runtime app container)
+backend/vector_store/storage/
+
+# Flashrank model cache
+flashrank_cache/
+/tmp/flashrank_cache/
 
 # LangGraph Studio local state
 .langgraph_api/
