@@ -1,5 +1,6 @@
 
 import asyncio
+import contextvars
 import re
 from typing import Optional, List, Dict, Any
 
@@ -155,10 +156,10 @@ class LangGraphService:
             logger.info("Embedding user query...")
             state.query_embedding = self.openai_service.embed_query(state.user_query)
 
-            # Step 2: Run web search and LLM classification concurrently
-            
-            web_future = self.classification_executor.submit(self._run_web_search, state.user_query)
-            classify_future = self.classification_executor.submit(self.openai_service.classify_query, state.user_query, state.query_embedding)
+            # Step 2: Run web search and LLM classification concurrently (propagating tracing context)
+            ctx = contextvars.copy_context()
+            web_future = self.classification_executor.submit(ctx.run, self._run_web_search, state.user_query)
+            classify_future = self.classification_executor.submit(ctx.run, self.openai_service.classify_query, state.user_query, state.query_embedding)
 
             # Collect web search results
             state.web_search_results = web_future.result()
@@ -258,6 +259,7 @@ class LangGraphService:
                 use_hybrid = False
 
         future_to_source = {}
+        ctx = contextvars.copy_context()
 
         for source in required_sources:
             collection_name = settings.COLLECTION_NAMES.get(source)
@@ -276,6 +278,7 @@ class LangGraphService:
             if use_hybrid:
                 # Hybrid search: dense + BM25 sparse via RRF
                 future = self.retrival_executor.submit(
+                    ctx.run,
                     self.qdrant_service.hybrid_search_by_vector,
                     collection_name,
                     state.query_embedding,
@@ -287,6 +290,7 @@ class LangGraphService:
             else:
                 # Dense-only fallback
                 future = self.retrival_executor.submit(
+                    ctx.run,
                     self.qdrant_service.search_by_vector,
                     collection_name,
                     state.query_embedding,
@@ -341,6 +345,7 @@ class LangGraphService:
     # ─────────────────────────────────────────────────────────
     # Node 2.5: Rerank retrieved documents (optional)
     # ─────────────────────────────────────────────────────────
+    @traceable(name="rerank_documents", run_type="tool")
     def _rerank_documents(self, state: LangGraphState) -> LangGraphState:
         """
         Optional node: applies FlashRank cross-encoder reranking to the
@@ -611,7 +616,10 @@ class LangGraphService:
         try:
             initial_state = LangGraphState(user_query=user_query)
             logger.info(f"Processing query asynchronously: {user_query[:80]}...")
-            final_state = await self.graph.ainvoke(initial_state)
+            final_state = await self.graph.ainvoke(
+                initial_state,
+                config={"run_name": "Islamic Chatbot Workflow"},
+            )
 
             if isinstance(final_state, dict):
                 return final_state.get("final_response", "")
@@ -661,6 +669,7 @@ class LangGraphService:
             async for mode, payload in self.graph.astream(
                 initial_state,
                 stream_mode=["updates", "messages"],
+                config={"run_name": "Islamic Chatbot Workflow"},
             ):
                 if mode == "updates":
                     # Transition from retrieval to generation
