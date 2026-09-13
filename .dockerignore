@@ -14,8 +14,10 @@ __pycache__/
 
 # Local data volumes (mounted via docker-compose, not baked into image)
 qdrant_storage/
+qdrant_storage*/
 qdrant_data/
 redis_data/
+*backup*
 
 # Logs (created at runtime)
 logs/
