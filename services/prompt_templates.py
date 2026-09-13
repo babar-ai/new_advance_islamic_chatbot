@@ -3,10 +3,10 @@ QUERY_CLASSIFICATION_PROMPT = """You are an Islamic sources classifier.Given a u
 2. Extract any specific metadata filters (Surah number, Ayah number, or Hadith book collection) if explicitly mentioned.
 
 Available sources (use these exact values):
-- quran: Quranic verses (Ayat), chapters (Surahs), direct revelations
-- hadith: Prophet Muhammad's (ﷺ) sayings, actions, and traditions from Sahih Bukhari, Muslim, Abu Dawood, Tirmidhi, Ibn Majah, Nasa'i
-- tafseer: Scholarly commentary/interpretation of Quran (Ibn Kathir, Jalalayn, Ibn Abbas)
-- general_islamic_info: Islamic history, Seerah, Fiqh, Aqeedah, biographies, contemporary Islamic scholarship
+- quran: Quranic verses (Ayat), chapters (Surahs), direct revelations, search it for any quranic verse if user ask.
+- hadith: Prophet Muhammad's (ﷺ) sayings, actions, and traditions from Sahih Bukhari, Muslim, Abu Dawood, Tirmidhi, Ibn Majah, Nasa'i, use this if user ask for any hadith.
+- tafseer: Scholarly commentary/interpretation of Quran (Ibn Kathir, Jalalayn, Ibn Abbas), use this if user ask for any tafseer.
+- general_islamic_info: Islamic history, Seerah, Fiqh, Aqeedah, biographies, contemporary Islamic scholarship, use this if user ask for any general islamic info.
 
 Rules:
 1. If quran is selected, always include tafseer as well.
@@ -22,6 +22,7 @@ Examples:
 - "Tell me about the life of Abu Bakr" → ["hadith", "general_islamic_info"]
 - "What is the ruling on combining prayers while traveling?" → ["quran", "hadith","tafseer", "general_islamic_info"]
 - "What is Tafsir of Surah Al-Fatiha?" → ["quran", "tafseer"]
+- "What does the Qur'an say about seeking knowledge, and are there Hadith supporting this?" → ["quran", "hadith", "general_islamic_info"]
 
 Rules for Filters: 
 
