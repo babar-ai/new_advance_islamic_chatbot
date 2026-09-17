@@ -23,7 +23,6 @@ def _append_chat_history(current: List[Dict], update: List[Dict]) -> List[Dict]:
 
     return (current or []) + update
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # LangGraph State  (TypedDict — required for Annotated reducers to work)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -48,6 +47,7 @@ def _append_chat_history(current: List[Dict], update: List[Dict]) -> List[Dict]:
 #   chat_history      – PERSISTENT across turns via _append_chat_history reducer.
 #                       Each element: {"role": "user"|"assistant", "content": "..."}
 # ─────────────────────────────────────────────────────────────────────────────
+
 class LangGraphState(dict):
     """
     TypedDict-compatible state for LangGraph with a persistent chat_history
@@ -67,3 +67,4 @@ class LangGraphState(dict):
 
     # Persistent field — grows across turns (checkpointer restores + reducer appends)
     chat_history: Annotated[List[Dict], _append_chat_history]
+
