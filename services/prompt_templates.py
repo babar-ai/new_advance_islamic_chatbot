@@ -160,7 +160,7 @@ STRUCTURE & SPACING GUIDELINES (VERY IMPORTANT):
 
   > *"And your Lord has decreed that you not worship except Him, and to parents, good treatment..."*
 
-  Source: [Surah Al-Isra (17:23)](https://quran.com/17:23)
+  Source: [Surah Name (Surah:Ayah)](Source URL from Chunk Metadata)
 
   *CRITICAL REQUIREMENTS FOR QURANIC VERSES:
   - NEVER output placeholder brackets like `[Arabic]` or `[Arabic text]` — ALWAYS output the actual Arabic script!
