@@ -414,10 +414,13 @@ export default function MessageBubble({
         continue;
       }
 
-      // Check if line is purely an introductory label like "**Arabic Ayah:**", "**Arabic:**", "Arabic Ayah:"
-      if (/^\*{0,2}(?:Arabic\s*Ayah|Arabic\s*Text|Arabic|Ayah|Verse)\s*:\*{0,2}$/i.test(trimmed)) {
+      // Check if line is purely an introductory label or placeholder like "**Arabic Ayah:**", "**Arabic:**", "Arabic Ayah:", or "[Arabic]"
+      if (
+        /^\*{0,2}(?:Arabic\s*Ayah|Arabic\s*Text|Arabic|Ayah|Verse)\s*:\*{0,2}$/i.test(trimmed) ||
+        /^\[\s*(?:Arabic\s*Ayah|Arabic\s*Text|Arabic|Ayah|Verse|Exact\s*Arabic[^\]]*)\s*\]$/i.test(trimmed)
+      ) {
         inArabicVerseContext = true;
-        continue; // Strip redundant label
+        continue; // Strip redundant label or placeholder tag
       }
 
       // Strip leading blockquote marker for citation check

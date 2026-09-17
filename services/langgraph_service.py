@@ -496,7 +496,24 @@ class LangGraphService:
 
                 # ── 1. Quran Collection: Direct verse link to https://quran.com/{surah}:{ayah} ──
                 if "quran" in s_type:
-                    arabic = meta.get("arabic", "")
+                    arabic = (
+                        meta.get("arabic")
+                        or meta.get("arabic_text")
+                        or meta.get("text_arabic")
+                        or meta.get("ayah_ar")
+                        or meta.get("ar")
+                        or meta.get("verse_arabic")
+                        or meta.get("ayah_text")
+                        or meta.get("arabic_ayah")
+                        or ""
+                    )
+                    if not arabic:
+                        # Fallback: scan metadata fields for Arabic characters
+                        for k, v in meta.items():
+                            if isinstance(v, str) and any("\u0600" <= c <= "\u06ff" for c in v):
+                                arabic = v
+                                break
+
                     surah = meta.get("surah", "")
                     ayah = meta.get("ayah_number", meta.get("reference", ""))
                     ref = meta.get("reference", f"{surah} {ayah}")
