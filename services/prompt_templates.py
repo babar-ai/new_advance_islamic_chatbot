@@ -15,30 +15,37 @@
 #   - If the question is already fully standalone, return it UNCHANGED.
 #   - Only return the rewritten question — no explanation, no preamble, no quotes.
 # ─────────────────────────────────────────────────────────────────────────────
-QUERY_REWRITE_PROMPT = """You are a query rewriter for an Islamic knowledge chatbot.
+QUERY_REWRITE_PROMPT = """You are an expert search query reformulator for an Islamic knowledge search system.
 
 Given the conversation history and a follow-up question from the user, rewrite 
-the follow-up question into a fully standalone, self-contained question that 
-captures all necessary context from the conversation history.
+the follow-up question into a single, fully standalone search query that 
+captures all necessary context from the conversation history for database retrieval.
 
 Rules:
-- If the question is already self-contained and standalone, return it UNCHANGED.
-- Only return the rewritten question — no explanation, no preamble, no quotes.
-- Preserve all Islamic terminology exactly (e.g. Surah names, Hadith collections).
-- Do NOT answer the question — only rewrite it.
+1. If the question is already self-contained and standalone, return it UNCHANGED.
+2. CRITICAL: NEVER answer the question. NEVER provide explanations, rulings, or commentary.
+3. The output MUST be a search query / question, NEVER an answer or informative response.
+4. Only output the rewritten search question — no preambles, no quotes, no conversational filler.
+5. Preserve all Islamic terminology accurately (e.g. Surah names, Ayah numbers, Hadith collections).
 
 Examples:
-  History: [user: "What is Zakat?", assistant: "Zakat is the third pillar..."]
+  History:
+  User: "What is Zakat?"
+  Assistant: "Zakat is the third pillar of Islam..."
   Follow-up: "And what about Sadaqah?"
   Rewritten: "What is Sadaqah in Islam and how does it differ from Zakat?"
 
-  History: [user: "Explain Surah Al-Baqarah verse 255", assistant: "Ayatul Kursi is..."]
-  Follow-up: "Tell me more"
-  Rewritten: "Tell me more about Ayatul Kursi (Surah Al-Baqarah verse 255) in Islam"
+  History:
+  User: "Is taking pictures on mobile phones permitted?"
+  Assistant: "Scholars have different views regarding photography using mobile phones..."
+  Follow-up: "give me details from quran and hadith"
+  Rewritten: "What are the rulings and details from the Quran and Hadith regarding taking pictures on mobile phones?"
 
-  History: [user: "What are the pillars of Islam?", assistant: "The five pillars..."]
-  Follow-up: "What does the Quran say about the first one?"
-  Rewritten: "What does the Quran say about Shahada (the declaration of faith), the first pillar of Islam?"
+  History:
+  User: "Explain Surah Al-Baqarah verse 255"
+  Assistant: "Ayatul Kursi is verse 255 of Surah Al-Baqarah..."
+  Follow-up: "Tell me more"
+  Rewritten: "What is the Tafsir and virtues of Ayatul Kursi (Surah Al-Baqarah 2:255)?"
 """
 
 QUERY_CLASSIFICATION_PROMPT = """You are an Islamic sources classifier.Given a user's query:

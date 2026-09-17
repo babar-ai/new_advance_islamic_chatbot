@@ -9,6 +9,7 @@ from cachetools import TTLCache
 import redis
 
 from schemas.structured_outputs.query_classification import QueryClassificationSchema
+from schemas.structured_outputs.query_rewrite import QueryRewriteSchema
 from services.prompt_templates import QUERY_CLASSIFICATION_PROMPT, ENGLISH_RESPONSE_PROMPT, QUERY_REWRITE_PROMPT
 from services.qdrant_service import QdrantService
 from utils.custom_logger import setup_logger
@@ -267,40 +268,84 @@ class OpenAIService:
     def rewrite_query(self, user_query: str, chat_history: List[dict]) -> str:
         """
         Rewrites a potentially ambiguous follow-up question into a fully
-        standalone question by using the recent conversation history.
+        standalone search query by using the recent conversation history.
 
         Called synchronously inside the rewrite_query node which runs in the
         classification_executor ThreadPoolExecutor.
 
         How it works:
-          1. Build a message list: [SystemMessage, ...history turns, HumanMessage]
-          2. Call the LLM synchronously (self.llm.invoke)
-          3. Return the stripped rewritten query string
-
-        Falls back to the original user_query on any exception so the pipeline
-        never fails because of the rewrite step.
+          1. Formats conversation history into a structured prompt context block
+             (avoiding alternating Human/AI messages which trigger chat assistant replies).
+          2. Invokes LLM with structured output (QueryRewriteSchema) to strictly guarantee
+             a standalone query string.
+          3. Validates against answering prefixes and falls back gracefully.
         """
         if not chat_history:
             # No history → nothing to resolve, return as-is
             return user_query
 
         try:
-            messages = [SystemMessage(content=QUERY_REWRITE_PROMPT)]
-
-            # Inject history turns as alternating Human/AI messages
+            # Build conversation history summary block
+            history_lines = []
             for turn in chat_history:
-                role = turn.get("role", "user")
-                content = turn.get("content", "")
-                if role == "user":
-                    messages.append(HumanMessage(content=content))
-                else:
-                    messages.append(AIMessage(content=content))
+                role = "User" if turn.get("role") == "user" else "Assistant"
+                content = str(turn.get("content", "")).strip()
+                # Truncate lengthy assistant turns to keep context focused on query subjects
+                if role == "Assistant" and len(content) > 250:
+                    content = content[:250] + "..."
+                if content:
+                    history_lines.append(f"{role}: {content}")
 
-            # The current follow-up question
-            messages.append(HumanMessage(content=user_query))
+            formatted_history = "\n".join(history_lines)
 
-            response = self.llm.invoke(messages)
-            rewritten = response.content.strip()
+            task_input = (
+                f"Conversation History:\n{formatted_history}\n\n"
+                f"User Follow-Up Query:\n\"{user_query}\"\n\n"
+                f"Task: Rewrite the follow-up query into a single standalone search question. "
+                f"DO NOT answer the question. Only output the standalone query."
+            )
+
+            messages = [
+                SystemMessage(content=QUERY_REWRITE_PROMPT),
+                HumanMessage(content=task_input),
+            ]
+
+            # Use structured output to strictly force QueryRewriteSchema JSON
+            structured_llm = self.llm.with_structured_output(QueryRewriteSchema)
+            res = structured_llm.invoke(messages)
+
+            rewritten = ""
+            if isinstance(res, QueryRewriteSchema):
+                rewritten = res.standalone_query.strip()
+            elif isinstance(res, dict):
+                rewritten = str(res.get("standalone_query", "")).strip()
+            elif hasattr(res, "content"):
+                rewritten = str(res.content).strip()
+
+            # Clean outer quotes if any
+            if rewritten.startswith('"') and rewritten.endswith('"'):
+                rewritten = rewritten[1:-1].strip()
+
+            # Guardrail: Check if the model answered instead of rewriting
+            answering_prefixes = [
+                "please note", "in islam", "according to", "scholars hold",
+                "the quran and hadith", "there is no explicit", "it is important to note",
+                "as mentioned", "based on"
+            ]
+            lower_rewritten = rewritten.lower()
+            if any(lower_rewritten.startswith(prefix) for prefix in answering_prefixes):
+                logger.warning(
+                    "Query rewrite attempted to answer ('%s') — falling back to context-merged query.",
+                    rewritten[:60]
+                )
+                # Fall back to pairing last user query with follow-up
+                last_user_query = ""
+                for turn in reversed(chat_history):
+                    if turn.get("role") == "user":
+                        last_user_query = turn.get("content", "").strip()
+                        break
+                rewritten = f"{last_user_query} - {user_query}" if last_user_query else user_query
+
             logger.info("Query rewritten: '%s' → '%s'", user_query[:60], rewritten[:60])
             return rewritten if rewritten else user_query
 
