@@ -23,10 +23,18 @@ class OpenAIService:
 
     def __init__(self, qdrant_service: Optional[QdrantService] = None):
 
+        # Flagship LLM: Used for final response generation & streaming (gpt-4o)
         self.llm = ChatOpenAI(
             model=settings.LLM_MODEL,
             api_key=settings.OPENAI_API_KEY,
             timeout=45,
+            max_retries=2,
+        )
+        # Fast LLM: Used for classification, query rewrite, and structured extraction (gpt-4o-mini)
+        self.fast_llm = ChatOpenAI(
+            model=settings.FAST_LLM_MODEL,
+            api_key=settings.OPENAI_API_KEY,
+            timeout=20,
             max_retries=2,
         )
         self.embeddings = OpenAIEmbeddings(
@@ -310,8 +318,8 @@ class OpenAIService:
                 HumanMessage(content=task_input),
             ]
 
-            # Use structured output to strictly force QueryRewriteSchema JSON
-            structured_llm = self.llm.with_structured_output(QueryRewriteSchema)
+            # Use fast structured LLM for ultra-fast query reformulations
+            structured_llm = self.fast_llm.with_structured_output(QueryRewriteSchema)
             res = structured_llm.invoke(messages)
 
             rewritten = ""
@@ -421,7 +429,7 @@ class OpenAIService:
             yield f"\n\n[Error: {str(e)}]"
 
 
-    def _process_request(self, prompt: str, text: str, schema=None) -> dict:
+    def _process_request(self, prompt: str, text: str, schema=None, use_fast_llm: bool = False) -> dict:
         """Generic method to handle requests to OpenAI via LangChain."""
         try:
             messages = [
@@ -429,8 +437,9 @@ class OpenAIService:
                 HumanMessage(content=text)
             ]
 
-            # Use structured output if schema is provided, otherwise use plain LLM
-            llm_instance = self.llm.with_structured_output(schema) if schema else self.llm
+            # Dual-model routing: use fast_llm for structured schema tasks (classification), flagship llm for generation
+            target_llm = self.fast_llm if (schema or use_fast_llm) else self.llm
+            llm_instance = target_llm.with_structured_output(schema) if schema else target_llm
             response = llm_instance.invoke(messages)
 
             return {

@@ -7,8 +7,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     VERSION: str = "1.3"
     LOGGING_DIR: str = "logs"
-    LLM_MODEL: str = "gpt-4.1-nano"
-    # LLM_MODEL: str = "gpt-4o"
+    
+    # LLM Settings (Dual-Model Strategy)
+    # Flagship model: High reasoning, pristine Arabic script, strict citation compliance
+    LLM_MODEL: str = "gpt-4o"
+    # Fast model: Ultra-fast & low cost for query classification and query rewriting
+    FAST_LLM_MODEL: str = "gpt-4o-mini"
 
 
     # Embedding Model Settings
