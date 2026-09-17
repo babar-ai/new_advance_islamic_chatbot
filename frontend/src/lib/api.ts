@@ -6,14 +6,14 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
  * Send a user query to the FastAPI backend.
  * Returns the AI-generated response string.
  */
-export async function sendQuery(query: string): Promise<string> {
+export async function sendQuery(query: string, sessionId?: string): Promise<string> {
   try {
     const res = await fetch(`${API_URL}/text_query`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, session_id: sessionId }),
     });
-
+ 
     if (res.status === 429) {
       throw new Error("Rate limit exceeded (10 requests/min). Please wait a moment and try again.");
     }
@@ -75,12 +75,13 @@ export async function sendQueryStream(
   query: string,
   onToken: (token: string) => void,
   onStatus?: (status: string, message: string) => void,
+  sessionId?: string,
 ): Promise<string> {
   try {
     const res = await fetch(`${API_URL}/text_query/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, session_id: sessionId }),
     });
 
     if (res.status === 429) {

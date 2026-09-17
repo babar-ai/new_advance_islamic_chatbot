@@ -4,12 +4,12 @@ import numpy as np
 from typing import Any, Optional, List
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from cachetools import TTLCache
 import redis
 
 from schemas.structured_outputs.query_classification import QueryClassificationSchema
-from services.prompt_templates import QUERY_CLASSIFICATION_PROMPT, ENGLISH_RESPONSE_PROMPT
+from services.prompt_templates import QUERY_CLASSIFICATION_PROMPT, ENGLISH_RESPONSE_PROMPT, QUERY_REWRITE_PROMPT
 from services.qdrant_service import QdrantService
 from utils.custom_logger import setup_logger
 from utils.config import settings
@@ -264,23 +264,88 @@ class OpenAIService:
         return self.embeddings.embed_query(query)
 
 
+    def rewrite_query(self, user_query: str, chat_history: List[dict]) -> str:
+        """
+        Rewrites a potentially ambiguous follow-up question into a fully
+        standalone question by using the recent conversation history.
+
+        Called synchronously inside the rewrite_query node which runs in the
+        classification_executor ThreadPoolExecutor.
+
+        How it works:
+          1. Build a message list: [SystemMessage, ...history turns, HumanMessage]
+          2. Call the LLM synchronously (self.llm.invoke)
+          3. Return the stripped rewritten query string
+
+        Falls back to the original user_query on any exception so the pipeline
+        never fails because of the rewrite step.
+        """
+        if not chat_history:
+            # No history → nothing to resolve, return as-is
+            return user_query
+
+        try:
+            messages = [SystemMessage(content=QUERY_REWRITE_PROMPT)]
+
+            # Inject history turns as alternating Human/AI messages
+            for turn in chat_history:
+                role = turn.get("role", "user")
+                content = turn.get("content", "")
+                if role == "user":
+                    messages.append(HumanMessage(content=content))
+                else:
+                    messages.append(AIMessage(content=content))
+
+            # The current follow-up question
+            messages.append(HumanMessage(content=user_query))
+
+            response = self.llm.invoke(messages)
+            rewritten = response.content.strip()
+            logger.info("Query rewritten: '%s' → '%s'", user_query[:60], rewritten[:60])
+            return rewritten if rewritten else user_query
+
+        except Exception as e:
+            logger.warning("Query rewrite failed (%s) — using original query.", e)
+            return user_query
+
+
     def generate_response(self, query: str, context: str) -> dict:
         """Generate the final comprehensive Islamic response using retrieved context."""
         prompt = ENGLISH_RESPONSE_PROMPT.replace("{context}", context)
         return self._process_request(prompt, query, schema=None)
 
 
-    async def agenerate_response(self, query: str, context: str) -> dict:
+    async def agenerate_response(self, query: str, context: str, chat_history: List[dict] = None) -> dict:
         """
         Generate the final comprehensive Islamic response asynchronously using ainvoke.
         Enables LangGraph astream(stream_mode='messages') to stream tokens natively.
+
+        Multi-turn awareness:
+          - chat_history contains the last N Q&A turns as {role, content} dicts.
+          - We build a proper LangChain message list so the LLM sees the full
+            conversation context, enabling coherent follow-up answers.
+          - The system prompt (with retrieved context) always comes first.
+          - History turns are interleaved as HumanMessage / AIMessage pairs.
+          - The current user query is always the final HumanMessage.
         """
         prompt = ENGLISH_RESPONSE_PROMPT.replace("{context}", context)
         try:
-            messages = [
-                SystemMessage(content=prompt),
-                HumanMessage(content=query),
-            ]
+            # Start with the system prompt that includes retrieved context
+            messages = [SystemMessage(content=prompt)]
+
+            # Inject prior conversation turns so the LLM can answer coherently
+            if chat_history:
+                for turn in chat_history:
+                    role = turn.get("role", "user")
+                    content = turn.get("content", "")
+                    if role == "user":
+                        messages.append(HumanMessage(content=content))
+                    else:
+                        messages.append(AIMessage(content=content))
+
+            # Current user question is always the final message
+            messages.append(HumanMessage(content=query))
+
             response = await self.llm.ainvoke(messages)
             return {
                 "status": "success",

@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     REDIS_PASSWORD: str = ""
     REDIS_TTL: int = 2592000  # 30 days in seconds (0 for no expiration)
 
+    # Chat History Settings (LangGraph Checkpointer)
+    # CHAT_HISTORY_MAX_TURNS: how many past Q&A pairs are injected into the
+    # rewrite and generation nodes. Keeps context focused without token bloat.
+    CHAT_HISTORY_MAX_TURNS: int = 5
+    # CHAT_HISTORY_TTL: seconds before an idle session's checkpoint expires in
+    # Redis. Default is 1 hour. Reset to 0 to disable expiry.
+    CHAT_HISTORY_TTL: int = 3600  # 1 hour
+
 
     # Ingestion & Chunking Parameters
     CHUNK_SIZE: int = 1200

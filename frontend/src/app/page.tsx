@@ -11,6 +11,7 @@ import TypingIndicator from "@/components/TypingIndicator";
 import WelcomeScreen from "@/components/WelcomeScreen";
 
 export default function ChatPage() {
+  const [sessionId, setSessionId] = useState<string>(() => crypto.randomUUID());
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,7 +133,8 @@ export default function ChatPage() {
           // onStatus: show pipeline phase ("Searching sources..." / "Composing...")
           (_status, message) => {
             setStreamStatus(message);
-          }
+          },
+          sessionId
         );
 
         // Mark streaming complete
@@ -153,10 +155,11 @@ export default function ChatPage() {
         setStreamStatus(null);
       }
     },
-    [isLoading]
+    [isLoading, sessionId]
   );
 
   const handleResetChat = useCallback(() => {
+    setSessionId(crypto.randomUUID());
     setMessages([]);
     setError(null);
     setLastFailedQuery(null);

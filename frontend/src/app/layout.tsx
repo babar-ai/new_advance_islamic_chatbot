@@ -24,10 +24,11 @@ const amiri = Amiri({
 });
 
 export const metadata: Metadata = {
-  title: "Islamic Knowledge — Seek · Learn · Apply",
+  title: "ILM AI — Seek · Learn · Apply",
   description:
     "Your trusted AI companion for Islamic knowledge using Qur'an, Hadith, Tafsir, and authentic Islamic sources.",
   keywords: [
+    "ILM AI",
     "Islamic Knowledge",
     "Quran AI",
     "Hadith Search",

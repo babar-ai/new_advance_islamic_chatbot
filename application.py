@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import uuid
 
 import redis.asyncio as redis
 
@@ -81,14 +82,18 @@ async def lifespan(app: FastAPI):
         retrival_executor=app.state.retrival_executor,
     )
 
-    app.state.langgraph_service = langgraph_service        #here app.state Store the langgraph_service object inside the application's state so that other parts of the application can access it."
+    # Build and compile the LangGraph with the Redis checkpointer.
+    # This must be awaited here (in async lifespan) because AsyncRedisSaver
+    # requires an async context to open its Redis connection.
+    await langgraph_service.setup_graph()
+
+    app.state.langgraph_service = langgraph_service
 
     # Redis
     redis_connection = redis.from_url(
         settings.REDIS_URL,
         encoding="utf-8",
         decode_responses=True,
-
     )
 
     # Initialize rate limiter
@@ -97,8 +102,7 @@ async def lifespan(app: FastAPI):
     logger.info("Redis rate limiter initialized")
 
     try:
-        yield        # So everything before yield happens when your application starts.
-                     # Everything after yield happens when your application shuts down.
+        yield
 
     finally:
 
@@ -106,6 +110,9 @@ async def lifespan(app: FastAPI):
 
         classification_executor.shutdown()
         retrival_executor.shutdown()
+
+        # Cleanly close the Redis checkpointer connection
+        await langgraph_service.teardown_graph()
 
         await redis_connection.close()
 
@@ -166,29 +173,31 @@ async def health_check():
 
 
 async def process_text_query(
-    request: Request,                                # Request represents the HTTP request sent by the client to your FastAPI server. actually here we demand from the lifespan function to provide us the request object. request object contain all the important information about client query i.e Post, url of the request , HTTP headers, body, and most importantly fastapi application which receive our request. i.e request.app
-    query_request: TextQuerySchema,                  # TextQuerySchema is a Pydantic model that defines the expected structure of the request body.
+    request: Request,
+    query_request: TextQuerySchema,
 ):
-
     user_input = query_request.query.strip()
-    langgraph_service = request.app.state.langgraph_service       #here request.app is our FastAPI application which receive our request. and state is a dictionary that is attached to our FastAPI application. and langgraph_service is a service that is attached to our FastAPI application.
+
+    # session_id identifies the conversation thread for the checkpointer.
+    # If the client doesn't send one (e.g. first message), generate a new UUID.
+    session_id = query_request.session_id or str(uuid.uuid4())
+
+    langgraph_service = request.app.state.langgraph_service
 
     logger.info(
-        "Received text query: %s",
-        user_input[:80]
+        "Received text query: session_id=%s query=%s",
+        session_id, user_input[:80]
     )
 
     try:
 
-        async with asyncio.timeout(60):
+        async with asyncio.timeout(120):
 
-            llm_response = await langgraph_service.aquery(user_input)
+            llm_response = await langgraph_service.aquery(user_input, session_id=session_id)
 
             if not llm_response:
 
-                logger.error(
-                    "LLM returned an empty response."
-                )
+                logger.error("LLM returned an empty response.")
 
                 raise HTTPException(
                     status_code=500,
@@ -199,13 +208,12 @@ async def process_text_query(
                 "status": "success",
                 "query": user_input,
                 "message": llm_response,
+                "session_id": session_id,   # Return to client so they can persist it
             }
 
     except TimeoutError:
 
-        logger.exception(
-            "Request timeout"
-        )
+        logger.exception("Request timeout")
 
         raise HTTPException(
             status_code=504,
@@ -217,9 +225,7 @@ async def process_text_query(
 
     except Exception:
 
-        logger.exception(
-            "Unexpected RAG failure"
-        )
+        logger.exception("Unexpected RAG failure")
 
         raise HTTPException(
             status_code=500,
@@ -251,24 +257,25 @@ async def stream_text_query(
     Each event is a JSON object with one of these shapes:
         {"status": "searching"|"generating", "message": "..."}   — progress update
         {"token": "...", "done": false}                          — LLM token chunk
-        {"done": true, "full_response": "..."}                   — final complete text
+        {"done": true, "full_response": "...", "session_id": "..."} — final complete text
     """
 
     user_input = query_request.query.strip()
+    session_id = query_request.session_id or str(uuid.uuid4())
     langgraph_service = request.app.state.langgraph_service
 
     logger.info(
-        "[STREAM] Received text query: %s",
-        user_input[:80]
+        "[STREAM] session_id=%s query=%s",
+        session_id, user_input[:80]
     )
 
     async def event_generator():
         try:
-            async for event in langgraph_service.query_stream(user_input):
+            async for event in langgraph_service.query_stream(user_input, session_id=session_id):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
             logger.exception("Streaming error")
-            error_event = {"done": True, "full_response": f"I apologize, but I encountered an error: {str(e)}"}
+            error_event = {"done": True, "full_response": f"I apologize, but I encountered an error: {str(e)}", "session_id": session_id}
             yield f"data: {json.dumps(error_event)}\n\n"
 
     return StreamingResponse(
@@ -277,6 +284,6 @@ async def stream_text_query(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",        # Disable nginx/proxy buffering
+            "X-Accel-Buffering": "no",
         },
     )

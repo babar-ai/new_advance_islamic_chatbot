@@ -132,7 +132,7 @@ export default function Sidebar({
               </div>
 
               <h1 className="text-base font-bold tracking-tight text-[#084C3E] dark:text-emerald-300">
-                Islamic Knowledge
+                ILM AI
               </h1>
               <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium tracking-wide mt-0.5">
                 Seek · Learn · Apply

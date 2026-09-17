@@ -83,6 +83,35 @@ function isSourceCitation(text: string): boolean {
     return false;
   }
 
+  // Never match markdown headings
+  if (/^#{1,6}\s/.test(trimmed)) {
+    return false;
+  }
+
+  // Never match lines ending in a colon (these are introductory lead-ins to quotes, e.g. "From Sahih al-Bukhari:")
+  if (/:$/.test(trimmed)) {
+    return false;
+  }
+
+  // Never match lines with narrative lead-in phrases that introduce quotes
+  if (
+    /^(?:Similarly|Likewise|In addition|Furthermore|Moreover|According to|As mentioned in|As recorded in|As narrated by|Narrated by|From the narration of|Other collections|The Prophet|He said|She said)\b/i.test(
+      trimmed
+    )
+  ) {
+    return false;
+  }
+
+  // If the line is long prose (> 14 words) and does NOT explicitly start with Source/Reference, it's a regular sentence
+  if (
+    trimmed.split(/\s+/).length > 14 &&
+    !/^(?:\*{0,2}(?:Source|Sources|Reference|References|Tafsir Source|Tafseer Source)\*{0,2}\s*:)/i.test(
+      trimmed
+    )
+  ) {
+    return false;
+  }
+
   // Normalized version stripping outer parentheses, markdown bold/italic, dashes:
   // e.g. "(Surah Al-Baqarah (2:153))" -> "Surah Al-Baqarah (2:153)"
   // e.g. "**(Surah Az-Zumar (39:10))**" -> "Surah Az-Zumar (39:10)"
@@ -208,9 +237,23 @@ export function resolveIslamicSourceUrl(
   text: string,
   currentUrl?: string | null
 ): string | null {
+  // 1. Prioritize authentic URL retrieved directly from chunk metadata via LLM Markdown link
+  if (currentUrl && typeof currentUrl === "string") {
+    const trimmed = currentUrl.trim();
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+      if (trimmed.includes("shorturl.at") || trimmed.includes("basitah.com")) {
+        return TAFSIR_IBN_ABBAS_PDF;
+      }
+      if (trimmed.includes("altafsir.com")) {
+        return TAFSIR_JALALAYN_PDF;
+      }
+      return trimmed;
+    }
+  }
+
   const lower = text.toLowerCase();
 
-  // 1. Tafsir Sources
+  // 2. Tafsir Sources fallback
   if (lower.includes("jalalayn") || lower.includes("jalalain")) {
     return TAFSIR_JALALAYN_PDF;
   }
@@ -226,7 +269,7 @@ export function resolveIslamicSourceUrl(
     return TAFSIR_IBN_ABBAS_PDF;
   }
 
-  // 2. Primary 6 Hadith Sources (always prioritize verified Archive.org over web links)
+  // 3. Primary 6 Hadith Sources fallback
   for (const [key, url] of Object.entries(HADITH_SOURCE_URLS)) {
     if (lower.includes(key)) {
       return url;
@@ -358,15 +401,27 @@ export default function MessageBubble({
     const lines = sanitized.split(/\r?\n/);
     const newLines: string[] = [];
 
+    let pendingVerseCitation: string | null = null;
+    let inArabicVerseContext = false;
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const trimmed = line.trim();
 
+      // Skip horizontal rules
+      if (/^[-—–*_]{2,}\s*$/.test(trimmed)) {
+        newLines.push(line);
+        continue;
+      }
+
+      // Check if line is purely an introductory label like "**Arabic Ayah:**", "**Arabic:**", "Arabic Ayah:"
+      if (/^\*{0,2}(?:Arabic\s*Ayah|Arabic\s*Text|Arabic|Ayah|Verse)\s*:\*{0,2}$/i.test(trimmed)) {
+        inArabicVerseContext = true;
+        continue; // Strip redundant label
+      }
+
       // Strip leading blockquote marker for citation check
       const withoutQuote = trimmed.replace(/^>\s*/, "").trim();
-
-      // Skip horizontal rules
-      const isDivider = /^[-—–*_]{2,}\s*$/.test(withoutQuote);
 
       // Check if this line is predominantly Arabic text (Quranic ayah or Hadith in Arabic)
       const arabicMatches = withoutQuote.match(/[\u0600-\u06FF]/g) || [];
@@ -379,16 +434,133 @@ export default function MessageBubble({
         newLines.push("");
         newLines.push(withoutQuote);
         newLines.push("");
+        inArabicVerseContext = true;
         continue;
       }
 
+      // Check if line is purely a translation label like "**Translation:**", "Translation:", "**Meaning:**"
+      const isTranslationLabelOnly = /^\*{0,2}(?:Translation|English\s*Translation|Meaning)\s*:\*{0,2}$/i.test(withoutQuote);
+      if (isTranslationLabelOnly) {
+        inArabicVerseContext = true;
+        continue; // Strip label
+      }
+
+      // Check if line starts with Translation label: e.g. "**Translation:** \"Text...\""
+      const inlineTranslationMatch = withoutQuote.match(/^\*{0,2}(?:Translation|English\s*Translation|Meaning)\s*:\*{0,2}\s*(.+)$/i);
+      let effectiveLine = withoutQuote;
+      let isExplicitTranslation = false;
+      if (inlineTranslationMatch) {
+        effectiveLine = inlineTranslationMatch[1].trim();
+        isExplicitTranslation = true;
+      }
+
       // Check if this entire line is a citation
-      if (!isDivider && isSourceCitation(withoutQuote)) {
-        let cite = withoutQuote.replace(/^[—\-–]\s*/, "").trim();
+      if (isSourceCitation(withoutQuote) || (isExplicitTranslation && isSourceCitation(effectiveLine))) {
+        let cite = (isExplicitTranslation ? effectiveLine : withoutQuote).replace(/^[—\-–]\s*/, "").trim();
         if (/[A-Za-z0-9]/.test(cite)) {
           if (!/^Source:\s*/i.test(cite)) {
             cite = `Source: ${cite}`;
           }
+
+          // Check if previous non-empty line in newLines was an Arabic verse
+          let prevNonEmpty = "";
+          for (let p = newLines.length - 1; p >= 0; p--) {
+            if (newLines[p].trim()) {
+              prevNonEmpty = newLines[p].trim();
+              break;
+            }
+          }
+          const prevArMatches = prevNonEmpty.match(/[\u0600-\u06FF]/g) || [];
+          const prevLatMatches = prevNonEmpty.match(/[a-zA-Z]/g) || [];
+          const isAfterArabic =
+            prevArMatches.length >= 3 && prevArMatches.length > prevLatMatches.length;
+
+          // Look ahead to see what follows this citation line
+          let nextNonEmpty = "";
+          let nextNonEmptyIdx = -1;
+          for (let j = i + 1; j < lines.length; j++) {
+            const t = lines[j].trim();
+            if (t) {
+              nextNonEmpty = t;
+              nextNonEmptyIdx = j;
+              break;
+            }
+          }
+
+          const nextArMatches = nextNonEmpty.match(/[\u0600-\u06FF]/g) || [];
+          const nextLatMatches = nextNonEmpty.match(/[a-zA-Z]/g) || [];
+          const isNextArabic =
+            nextArMatches.length >= 3 && nextArMatches.length > nextLatMatches.length;
+
+          const isNextTranslation =
+            nextNonEmpty.startsWith(">") ||
+            /^["'“‘]/.test(nextNonEmpty) ||
+            /^(?:Translation|Meaning|English Translation)\s*:/i.test(nextNonEmpty);
+
+          // CASE 1: Citation sits directly between Arabic verse and English translation
+          // Or citation sits directly before an Arabic verse
+          if ((isAfterArabic && isNextTranslation) || isNextArabic) {
+            // Check if there is already a citation after the translation block
+            let hasCitationBelow = false;
+            if (nextNonEmptyIdx !== -1) {
+              for (let k = nextNonEmptyIdx; k < lines.length; k++) {
+                const cur = lines[k].trim();
+                if (!cur) continue;
+                const curWithoutQ = cur.replace(/^>\s*/, "").trim();
+                const curArMatches = curWithoutQ.match(/[\u0600-\u06FF]/g) || [];
+                const curLatMatches = curWithoutQ.match(/[a-zA-Z]/g) || [];
+                const curIsAr = curArMatches.length >= 3 && curArMatches.length > curLatMatches.length;
+
+                if (
+                  cur.startsWith(">") ||
+                  /^["'“‘]/.test(curWithoutQ) ||
+                  /["'”’]$/.test(curWithoutQ) ||
+                  /^(?:Translation|Meaning)\s*:/i.test(curWithoutQ) ||
+                  curIsAr
+                ) {
+                  continue;
+                } else {
+                  if (isSourceCitation(curWithoutQ)) {
+                    hasCitationBelow = true;
+                  }
+                  break;
+                }
+              }
+            }
+
+            if (hasCitationBelow) {
+              // Discard intermediate citation so only ONE citation remains below the translation
+              continue;
+            } else {
+              // Defer citation to appear right below the translation
+              pendingVerseCitation = cite;
+              continue;
+            }
+          }
+
+          // Robust deduplication: check if this source citation was already emitted in recent lines
+          const normCurrent = cite.toLowerCase().replace(/[^a-z0-9]/g, "");
+          let isDuplicate = false;
+          for (let p = newLines.length - 1; p >= Math.max(0, newLines.length - 15); p--) {
+            const prev = newLines[p].trim();
+            if (!prev) continue;
+            if (isSourceCitation(prev)) {
+              const normPrev = prev.toLowerCase().replace(/[^a-z0-9]/g, "");
+              if (
+                normPrev &&
+                normCurrent &&
+                (normPrev.includes(normCurrent) || normCurrent.includes(normPrev))
+              ) {
+                isDuplicate = true;
+                break;
+              }
+            }
+          }
+
+          if (isDuplicate) {
+            continue;
+          }
+
           // Isolate on its own distinct paragraph outside of any blockquote
           newLines.push("");
           newLines.push(cite);
@@ -397,9 +569,24 @@ export default function MessageBubble({
           newLines.push(line);
         }
       } else {
+        // Check if this line is an English verse translation that should be styled as blockquote:
+        const isQuoteLine = /^["'“‘]/.test(effectiveLine) || /["'”’]$/.test(effectiveLine);
+        const shouldBeBlockquote = isExplicitTranslation || (inArabicVerseContext && isQuoteLine);
+
+        let quoteLine = line;
+        if (shouldBeBlockquote) {
+          let cleanText = effectiveLine.replace(/^["'“‘*_\s]+/, "").replace(/["'”’*_\s]+$/, "").trim();
+          quoteLine = `> *"${cleanText}"*`;
+          inArabicVerseContext = false;
+        } else if (line.startsWith(">")) {
+          inArabicVerseContext = false;
+        } else if (trimmed.length > 0 && !isArabicVerse) {
+          inArabicVerseContext = false;
+        }
+
         // Check if a citation is appended at the very end of a quote line
         // e.g. > "quote text" Surah Az-Zumar (39:10)
-        const trailingMatch = line.match(
+        const trailingMatch = quoteLine.match(
           /^(>\s*["'“].*?["'”])\s*(?:—|–|-)?\s*((?:Surah|Qur['’]?an|Sahih|Sunan)\s+[A-Za-z\s'’\u0100-\u024F\-]+(?:\(?\d+:\d+(?:-\d+)?\)?|\d+:\d+)|\((?:Quran|Qur['’]?an|Surah|Sahih|Sunan|Jami|Musnad|Muwatta|Ibn|Tirmidhi|Abu Dawood|Nasa['’]?i|Tafsir)[^)]*\))\s*$/i
         );
 
@@ -409,7 +596,33 @@ export default function MessageBubble({
           newLines.push(`Source: ${trailingMatch[2]}`);
           newLines.push("");
         } else {
-          newLines.push(line);
+          newLines.push(quoteLine);
+        }
+
+        // If a citation was deferred from an Arabic verse, emit it once the translation block ends
+        if (pendingVerseCitation) {
+          let nextNonEmpty = "";
+          for (let j = i + 1; j < lines.length; j++) {
+            const t = lines[j].trim();
+            if (t) {
+              nextNonEmpty = t;
+              break;
+            }
+          }
+          const nextWithoutQ = nextNonEmpty.replace(/^>\s*/, "").trim();
+          const nextIsStillQuote =
+            nextNonEmpty.startsWith(">") ||
+            /^["'“‘]/.test(nextWithoutQ) ||
+            /^(?:Translation|Meaning)\s*:/i.test(nextWithoutQ);
+
+          if (!nextIsStillQuote) {
+            if (!isSourceCitation(nextWithoutQ)) {
+              newLines.push("");
+              newLines.push(pendingVerseCitation);
+              newLines.push("");
+            }
+            pendingVerseCitation = null;
+          }
         }
       }
     }
@@ -604,19 +817,49 @@ export default function MessageBubble({
 
                 // 2. Dedicated Source Citation Badge - clickable link if URL present
                 if (isSourceCitation(text)) {
-                  let cleanSource = text
-                    .trim()
-                    .replace(
-                      /^(?:\*{0,2}(?:Source|Sources|Reference|References|Tafsir Source|Tafseer Source|Tafsir|Tafseer)\*{0,2}\s*:|—|–|-)?\s*/i,
-                      ""
-                    )
-                    .replace(/^(?:Source|Sources|Reference|References)\s*:\s*/i, "")
+                  const rawContent = typeof children === "string" ? children : getNodeText(children);
+                  const trimmedContent = rawContent.trim();
+
+                  let sourceUrl: string | null = null;
+                  let cleanTitle = trimmedContent;
+
+                  // Shape 1: Standard markdown link [Title](URL)
+                  const stdMatch = trimmedContent.match(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
+                  if (stdMatch) {
+                    cleanTitle = stdMatch[1];
+                    sourceUrl = stdMatch[2];
+                  } else {
+                    // Shape 2: Malformed bracket link [Title (URL)] or [Title URL]
+                    const bracketMatch = trimmedContent.match(/\[([^\](\n]+?)\s*(?:\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s)\]]+))\]/);
+                    if (bracketMatch) {
+                      cleanTitle = bracketMatch[1];
+                      sourceUrl = bracketMatch[2] || bracketMatch[3];
+                    } else {
+                      // Shape 3: Parenthesized URL Title (URL)
+                      const parenMatch = trimmedContent.match(/(?:Source:\s*)?([^(\n]+?)\s*\((https?:\/\/[^\s)]+)\)/i);
+                      if (parenMatch) {
+                        cleanTitle = parenMatch[1];
+                        sourceUrl = parenMatch[2];
+                      } else {
+                        // Shape 4: Bare URL in line
+                        const bareUrlMatch = trimmedContent.match(/(https?:\/\/[^\s)]+)/);
+                        if (bareUrlMatch) {
+                          sourceUrl = bareUrlMatch[1];
+                        }
+                      }
+                    }
+                  }
+
+                  // Sanitize cleanTitle: strip prefixes, brackets, and ensure no URL remains in the label
+                  cleanTitle = cleanTitle
+                    .replace(/^(?:\*{0,2}(?:Source|Sources|Reference|References|Tafsir Source|Tafseer Source|Tafsir|Tafseer)\*{0,2}\s*:|—|–|-)\s*/i, "")
                     .replace(/^[\s*_\(\[]+/, "")
                     .replace(/[\s*_\)\]]+$/, "")
+                    .replace(/https?:\/\/\S+/gi, "")
                     .replace(/[\s\-–—]*(?:Arabic|Translation)\s*:?\s*$/i, "")
                     .trim();
 
-                  if (!/[A-Za-z0-9\u0600-\u06FF]/.test(cleanSource)) {
+                  if (!/[A-Za-z0-9\u0600-\u06FF]/.test(cleanTitle)) {
                     return (
                       <p className="mb-4 text-slate-700 dark:text-slate-300 leading-relaxed text-sm sm:text-base">
                         {children}
@@ -624,34 +867,9 @@ export default function MessageBubble({
                     );
                   }
 
-                  // Extract URL from markdown link pattern [Label](URL) in cleanSource
-                  let sourceUrl: string | null = null;
-                  const mdLinkMatch = cleanSource.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
-                  if (mdLinkMatch) {
-                    sourceUrl = mdLinkMatch[2];
-                  } else {
-                    const rawText = typeof children === "string"
-                      ? children
-                      : getNodeText(children);
-                    const rawMdMatch = rawText.match(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
-                    if (rawMdMatch) {
-                      sourceUrl = rawMdMatch[2];
-                    }
-                  }
-
-                  // Extract pure text for source label to guarantee NO nested <a> tags inside the badge <a>
-                  const rawLabelText = getNodeText(children);
-                  const labelText =
-                    rawLabelText
-                      .replace(
-                        /^(?:\*{0,2}(?:Source|Sources|Reference|References|Tafsir Source|Tafseer Source|Tafsir|Tafseer)\*{0,2}\s*:|—|–|-)\s*/i,
-                        ""
-                      )
-                      .replace(/^\[([^\]]+)\]\([^\)]+\)$/, "$1")
-                      .trim() || cleanSource;
-
                   // Auto-resolve to authentic Hadith, Tafsir, or Quran URL
-                  const safeSourceUrl = resolveIslamicSourceUrl(cleanSource, sourceUrl);
+                  const safeSourceUrl = resolveIslamicSourceUrl(cleanTitle, sourceUrl);
+                  const labelText = cleanTitle;
 
                   const badgeContent = (
                     <>

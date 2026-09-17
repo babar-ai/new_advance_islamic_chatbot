@@ -31,3 +31,5 @@ httpx
 cachetools
 numpy
 flashrank                    # CPU-only cross-encoder reranker (~67 MB, no GPU)
+
+langgraph-checkpoint-redis
