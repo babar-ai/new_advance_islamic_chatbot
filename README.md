@@ -1,41 +1,68 @@
-# 🕌 Islamic Knowledge AI — Production RAG & Streaming System
+# 🕌 ILM AI — Islamic Knowledge Assistant
 
 <div align="center">
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![Next.js](https://img.shields.io/badge/Next.js-16.0+-000000?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org)
-[![React](https://img.shields.io/badge/React-19.0-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
-[![LangGraph](https://img.shields.io/badge/LangGraph-StateGraph-FF4B4B?style=for-the-badge&logo=langchain&logoColor=white)](https://langchain-ai.github.io/langgraph/)
-[![Qdrant](https://img.shields.io/badge/Qdrant-Vector_DB-DC2626?style=for-the-badge&logo=qdrant&logoColor=white)](https://qdrant.tech)
-[![Redis](https://img.shields.io/badge/Redis-7--Alpine-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
+[![LangGraph](https://img.shields.io/badge/LangGraph-5--Node_Pipeline-FF4B4B?style=for-the-badge&logo=langchain&logoColor=white)](https://langchain-ai.github.io/langgraph/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
+[![Qdrant](https://img.shields.io/badge/Qdrant-Hybrid_Search-DC2626?style=for-the-badge&logo=qdrant&logoColor=white)](https://qdrant.tech)
+[![Redis](https://img.shields.io/badge/Redis-Stack-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
-[![AWS](https://img.shields.io/badge/AWS-EC2_Free_Tier-FF9900?style=for-the-badge&logo=amazon-aws&logoColor=white)](https://aws.amazon.com)
+[![AWS](https://img.shields.io/badge/AWS-EC2-FF9900?style=for-the-badge&logo=amazon-aws&logoColor=white)](https://aws.amazon.com)
 [![Vercel](https://img.shields.io/badge/Vercel-Edge_CDN-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://vercel.com)
+[![LangSmith](https://img.shields.io/badge/LangSmith-Observability-1C3C3C?style=for-the-badge&logo=langchain&logoColor=white)](https://smith.langchain.com)
 
-**An enterprise-grade, multi-source Retrieval-Augmented Generation (RAG) platform grounded in the Qur'an, Hadith, Tafsir, and Scholarly Islamic Knowledge.**
+**A production-grade, multi-source Retrieval-Augmented Generation (RAG) platform grounded in the Qur'an, Hadith, Tafsir, and Scholarly Islamic Knowledge.**
 
-Featuring a **3-tier semantic caching engine** (cutting query routing latency by 97%), **real-time token streaming via Server-Sent Events (SSE)**, and a **decoupled Next.js 16 & FastAPI cloud architecture**.
+*Featuring a stateful 5-node LangGraph pipeline, 3-tier semantic caching, hybrid vector search with BM25, cross-encoder reranking, real-time SSE token streaming, persistent conversation memory via Redis, and full LangSmith observability — deployed on AWS with automated HTTPS.*
+
+🌐 **Live Demo:** [ilm-ai-amber.vercel.app](https://ilm-ai-amber.vercel.app)
 
 </div>
 
 ---
 
-## ⚡ Engineering Highlights (Why This Project Stands Out)
+## 📋 Table of Contents
 
-* **⚡ 97%+ Latency & Cost Reduction via 3-Tier Semantic Cache:**
-  Instead of burning LLM tokens on every user question just to classify query intent, requests pass through a tiered cache:
-  `Redis Exact-Match (<1ms)` ➔ `Qdrant Vector Semantic Cache (~12ms)` ➔ `OpenAI Structured Fallback (~400ms)`. Every cache miss is written back, making the system progressively faster and cheaper.
-* **🌊 Real-Time Token-by-Token Streaming (Server-Sent Events):**
-  Zero bulk-response waiting. Full async token streaming powered by `ChatOpenAI.astream()`, FastAPI `StreamingResponse`, and React Markdown streaming with a live pulsing cursor.
-* **🧠 Deterministic 3-Node LangGraph Architecture:**
-  Query classification, parallel multi-collection vector retrieval (Qur'an, Hadith, Tafsir), and grounded synthesis orchestrated in an inspectable, stateful directed acyclic graph (DAG).
-* **🕌 Theological Precision & Custom Ingestion:**
-  Custom `IslamicJSONLoader` eliminates `jq` dependencies, auto-detects heterogeneous JSON schemas, and combines Hadith narrator chains with translation text while preserving 1-to-1 canonical theological integrity.
-* **🛡️ Zero Single Point of Failure (Multi-Level Circuit Breakers):**
-  If Redis goes down, it seamlessly falls back to an in-memory `TTLCache`. If Qdrant cache is unreachable, it degrades to an in-memory numpy cosine similarity matrix. The system never crashes on cache failures.
-* **☁️ Production Cloud-Decoupled Architecture:**
-  Frontend hosted on **Vercel's Global Edge CDN**; microservices (FastAPI, Qdrant, Redis, Caddy reverse-proxy with automated Let's Encrypt SSL) orchestrated on **AWS EC2** with dedicated Linux swap protection.
+- [Engineering Highlights](#-engineering-highlights)
+- [System Architecture](#-system-architecture)
+- [The 5-Node LangGraph Pipeline](#-the-5-node-langgraph-pipeline)
+- [Knowledge Base & Islamic Data Sources](#-knowledge-base--islamic-data-sources)
+- [3-Tier Semantic Caching Engine](#-3-tier-semantic-caching-engine)
+- [Hybrid Vector Search](#-hybrid-vector-search)
+- [Cross-Encoder Reranking](#-cross-encoder-reranking)
+- [Real-Time SSE Streaming](#-real-time-sse-streaming)
+- [Conversation Memory & Session Management](#-conversation-memory--session-management)
+- [LangSmith Observability & Live Graph](#-langsmith-observability--live-graph)
+- [Frontend Architecture](#-frontend-architecture)
+- [Infrastructure & Deployment](#-infrastructure--deployment)
+- [Concurrency & Scaling Design](#-concurrency--scaling-design)
+- [Circuit Breakers & Resilience](#-circuit-breakers--resilience)
+- [Project Structure](#-project-structure)
+- [Quickstart & Local Setup](#-quickstart--local-setup)
+- [API Reference](#-api-reference)
+- [Evaluation](#-evaluation)
+- [Technical Design Q&A](#-technical-design-qa)
+
+---
+
+## ⚡ Engineering Highlights
+
+| Feature | Implementation |
+|:---|:---|
+| **5-Node Stateful Pipeline** | LangGraph `StateGraph` with `AsyncRedisSaver` checkpointer for persistent multi-turn history |
+| **Hybrid Vector Search** | OpenAI dense embeddings + BM25 sparse vectors (FastEmbed) fused via Reciprocal Rank Fusion (RRF) |
+| **Cross-Encoder Reranking** | FlashRank offline CPU reranker — no GPU, no API cost — scores all candidates and keeps top-K per source |
+| **3-Tier Semantic Cache** | Redis exact match → Qdrant semantic vector cache → OpenAI LLM fallback; 97%+ latency reduction on hits |
+| **Real-Time SSE Streaming** | Token-by-token streaming via `ChatOpenAI.astream()` + FastAPI `StreamingResponse` rendered live in browser |
+| **Query Rewriting** | GPT-4o-mini resolves follow-up references ("Tell me more") into standalone queries before retrieval |
+| **Intelligent Source Routing** | Query classified across 4 Islamic knowledge collections + optional live Tavily web search |
+| **LangSmith Studio** | Dedicated `langgraph-api` container exposes live visual graph topology with per-node latency tracing |
+| **Dual LLM Strategy** | GPT-4o-mini for fast classification & rewriting; GPT-4o flagship for final cited Arabic responses |
+| **5-Container Production Stack** | `caddy` · `app` · `qdrant` · `redis` · `langgraph-api` orchestrated with Docker Compose |
+| **Automated HTTPS** | Caddy reverse proxy with automatic Let's Encrypt TLS — zero certificate management |
 
 ---
 
@@ -44,115 +71,225 @@ Featuring a **3-tier semantic caching engine** (cutting query routing latency by
 ```mermaid
 flowchart TB
     subgraph Client ["Client Layer (Vercel Edge CDN)"]
-        UI["Next.js 16 Web Application<br/>(React 19 • Tailwind CSS • SSE Client)"]
+        UI["Next.js 16 Web Application
+(React 19 • TypeScript • Tailwind v4 • SSE Client)"]
     end
 
-    subgraph AWS ["AWS Cloud Infrastructure (EC2 • 13.200.186.105)"]
+    subgraph AWS ["AWS EC2 — islamic-ai-babar.duckdns.org"]
         subgraph Ingress ["Reverse Proxy & SSL"]
-            Caddy["Caddy Server (Auto Let's Encrypt SSL)<br/>islamic-ai-babar.duckdns.org"]
+            Caddy["Caddy 2 (Auto Let's Encrypt TLS)
+/langgraph/* → langgraph-api:8123
+/* → app:8000"]
         end
 
-        subgraph Backend ["FastAPI Microservice (Port 8000)"]
+        subgraph Backend ["FastAPI Backend (Port 8000)"]
             API["FastAPI Application"]
-            Limiter["FastAPI Limiter (10 req/min)"]
-            Router["Query Router & Dispatcher"]
+            Limiter["Rate Limiter (10 req/min)"]
         end
 
-        subgraph CacheEngine ["3-Tier Hybrid Caching Engine"]
-            L1["Layer 1: Redis Exact Match<br/>(<1ms • String Hash)"]
-            L2["Layer 2: Qdrant Semantic Cache<br/>(~12ms • Cosine Sim ≥ 0.85)"]
-            L3["Layer 3: OpenAI LLM Fallback<br/>(Write-Through Caching)"]
+        subgraph Pipeline ["LangGraph 5-Node Pipeline"]
+            N0["① rewrite_query — GPT-4o-mini"]
+            N1["② classify_and_search — GPT-4o-mini + Tavily"]
+            N2["③ parallel_retrieve — Qdrant Hybrid Search"]
+            N3["④ rerank_documents — FlashRank CPU"]
+            N4["⑤ generate_response — GPT-4o + SSE Stream"]
         end
 
-        subgraph Graph ["LangGraph Workflow Engine"]
-            Node1["Node 1: classify_and_search<br/>Intent & Web Search Branching"]
-            Node2["Node 2: parallel_retrieve<br/>ThreadPoolExecutor (8 Workers)"]
-            Node3["Node 3: generate_response_stream<br/>Context Fusion & Token Yield"]
+        subgraph CacheEngine ["3-Tier Classification Cache"]
+            L1["L1: Redis Exact Match < 1ms"]
+            L2["L2: Qdrant Semantic Cache ~12ms"]
+            L3["L3: OpenAI LLM Fallback ~400ms"]
         end
 
-        subgraph Storage ["Knowledge Base Storage"]
-            QD_Quran["Qdrant: Quran Collection<br/>(1,536-dim vectors)"]
-            QD_Hadith["Qdrant: Hadith Collection<br/>(1,536-dim vectors)"]
-            QD_Tafsir["Qdrant: Tafsir Collection<br/>(1,536-dim vectors)"]
-            QD_General["Qdrant: General Islamic Info<br/>(1,536-dim vectors)"]
-            Redis["Redis In-Memory Key-Value Store"]
+        subgraph Storage ["Knowledge Storage"]
+            QD1["Qdrant: quran"]
+            QD2["Qdrant: hadith"]
+            QD3["Qdrant: tafseer"]
+            QD4["Qdrant: general_islamic_info"]
+            Redis["Redis Stack — Cache + Checkpointer + Rate Limit"]
+        end
+
+        subgraph Studio ["LangGraph API (Port 8123)"]
+            LGApi["langgraph dev — LangSmith Studio Topology"]
         end
     end
 
-    subgraph External ["External AI & Search Services"]
-        OpenAI_Emb["OpenAI text-embedding-3-small"]
-        OpenAI_LLM["OpenAI GPT-4o-mini"]
-        Tavily["Tavily Web Search API"]
-        LangSmith["LangSmith Observability & Tracing"]
+    subgraph External ["External Services"]
+        OpenAI["OpenAI — GPT-4o, GPT-4o-mini, text-embedding-3-small"]
+        Tavily["Tavily Web Search"]
+        LangSmith["LangSmith — Tracing + Studio UI"]
     end
 
-    %% Client traffic
-    UI -->|HTTPS / POST /text_query/stream| Caddy
-    Caddy -->|Internal Proxy| API
-
-    %% Rate limiting & Caching
-    API --> Limiter
-    Limiter --> Redis
-    API --> Router
-    Router --> L1
-    L1 -.->|Miss| L2
-    L2 -.->|Miss| L3
-    L3 --> OpenAI_LLM
-    L3 -.->|Save Result| L1
-    L3 -.->|Save Vector| L2
-
-    %% Pipeline Execution
-    Router --> Node1
-    Node1 -->|Embed Query| OpenAI_Emb
-    Node1 -->|Optional Web Context| Tavily
-    Node1 --> Node2
-
-    %% Parallel Retrieval
-    Node2 --> QD_Quran
-    Node2 --> QD_Hadith
-    Node2 --> QD_Tafsir
-    Node2 --> QD_General
-
-    %% Synthesis & Streaming
-    Node2 --> Node3
-    Node3 --> OpenAI_LLM
-    OpenAI_LLM -->|Token Stream| Node3
-    Node3 -->|SSE Data Chunks| API
-    API -->|Real-Time SSE Stream| Caddy
-    Caddy -->|Token-by-Token Render| UI
-
-    %% Observability
-    API -.->|Traces & Latency| LangSmith
+    UI -->|HTTPS POST /text_query/stream| Caddy
+    Caddy --> API
+    API --> Limiter --> N0 --> N1 --> N2 --> N3 --> N4
+    N1 -->|Optional| Tavily
+    N1 --> L1 -.->|Miss| L2 -.->|Miss| L3 --> OpenAI
+    N2 --> QD1 & QD2 & QD3 & QD4
+    N4 -->|SSE Tokens| API -->|Stream| Caddy -->|Real-Time| UI
+    API -.->|Traces| LangSmith
+    Caddy -->|/langgraph/*| LGApi -.->|Visual Graph| LangSmith
+    N0 & N1 & N4 --> OpenAI
+    Redis -->|Checkpointer| N0
+    Redis -->|Rate Limit| Limiter
 ```
 
 ---
 
-## 🔬 Deep-Dive: System Design & Technical Details
+## 🔁 The 5-Node LangGraph Pipeline
 
-### 1. The 3-Tier Semantic Cache (Cost & Latency Breakdown)
-
-In traditional RAG pipelines, every query executes an upfront LLM classification call to determine which collections to search (e.g. *"Is this asking about prayer rulings, Quranic exegesis, or Hadith sayings?"*).
-
-At scale, this introduces significant latency and cost:
-
-| Tier | Lookup Mechanism | Latency | Cost per Query | Cache Invalidation / Fallback |
-| :--- | :--- | :--- | :--- | :--- |
-| **Layer 1: Exact Match** | Redis Key-Value (`exact_cache:<normalized_query>`) | **< 1 ms** | **$0.00** | Fallback to in-memory `TTLCache` (500 items, 1h TTL) |
-| **Layer 2: Semantic Cache** | Qdrant Vector Collection (`classification_cache`, Cosine Sim ≥ 0.85) | **~12 ms** | **$0.00** | Fallback to in-memory cosine list (200 items) |
-| **Layer 3: LLM Fallback** | OpenAI `ChatOpenAI` with Pydantic Structured Output | **~400–1200 ms** | **$0.0006** | Automatically writes back to Layer 1 & Layer 2 |
+Every user message passes through a deterministic, stateful pipeline compiled as a LangGraph `StateGraph` with a Redis checkpointer that persists conversation history across all turns.
 
 ```
-Benchmark:
-Query 1: "What does the Quran say about patience?"       ➔ LLM Fallback (420ms, $0.0006)
-Query 2: "What does the Quran say about patience?"       ➔ L1 Exact Hit   (<1ms,  $0.0000) [99.7% faster]
-Query 3: "Quranic verses on Sabr (endurance)?"          ➔ L2 Semantic Hit (11ms,  $0.0000) [97.3% faster]
+rewrite_query → classify_and_search → parallel_retrieve → rerank_documents → generate_response
 ```
 
-### 2. Response Streaming via Server-Sent Events (SSE)
+### Node ① — `rewrite_query`
+**Model:** GPT-4o-mini &nbsp;|&nbsp; **Cost tier:** Minimal (often zero-cost)
 
-Unlike batch REST endpoints that force the user to stare at a loading spinner for 15–20 seconds, the `/text_query/stream` endpoint streams the output incrementally:
+Resolves ambiguous follow-up questions by reading the last N conversation turns from `LangGraphState.chat_history` (stored in Redis via `AsyncRedisSaver`) and rewriting the user's message into a fully self-contained, standalone query.
+
+- **Zero-cost fast path:** If `chat_history` is empty (first message of a session), the node copies the raw query directly — no LLM call.
+- **Sliding window:** Only the last `CHAT_HISTORY_MAX_TURNS` turns are included to keep the rewrite prompt compact and cheap.
+- **Structured output:** Uses `QueryRewriteSchema` (Pydantic) to guarantee a clean, typed standalone query string.
+
+> *Example:* "What did He say about that?" → "What did the Prophet ﷺ say about patience during illness according to Hadith?"
+
+---
+
+### Node ② — `classify_and_search`
+**Model:** GPT-4o-mini + Tavily &nbsp;|&nbsp; **Cost tier:** Low (usually cache hit)
+
+Determines **where to look** — which Islamic knowledge collections are relevant — and optionally triggers a live web search for time-sensitive queries.
+
+- **Source classification:** Routes queries to one or more of: `quran`, `hadith`, `tafseer`, `general_islamic_info`.
+- **3-Tier cache lookup:** Avoids LLM classification on repeated or semantically similar queries (see [Caching Engine](#-3-tier-semantic-caching-engine)).
+- **Tavily web search:** Invoked concurrently alongside classification via `ThreadPoolExecutor` when the query touches recent fatwas, contemporary Islamic events, or questions outside the vector database.
+- **Graceful degradation:** If `TAVILY_API_KEY` is not set or Tavily fails, web search is silently disabled — the pipeline continues with vector retrieval only.
+
+---
+
+### Node ③ — `parallel_retrieve`
+**Tool:** Qdrant hybrid search &nbsp;|&nbsp; **Cost tier:** None (self-hosted)
+
+Executes simultaneous semantic searches across all selected Qdrant collections using a `ThreadPoolExecutor(max_workers=8)`.
+
+- **Hybrid search:** Each collection query combines dense vectors (OpenAI `text-embedding-3-small`, 1536-dim) and sparse BM25 vectors (FastEmbed `Qdrant/bm25`) fused with **Reciprocal Rank Fusion (RRF)**.
+- **True parallelism:** All selected collections are searched at the same time — latency stays flat regardless of how many sources are queried.
+- **Per-source retrieval limits** (`SOURCE_RETRIEVE_LIMITS`): Fetches 3–4× more candidates than needed (e.g. 18 hadith, 15 quran, 15 tafseer, 20 general) to give the reranker a rich pool.
+- **Metadata preserved:** Source URLs, Surah numbers, Hadith collection names, narrator chains, and Tafsir attributions are all carried through document metadata.
+
+---
+
+### Node ④ — `rerank_documents`
+**Tool:** FlashRank (offline CPU cross-encoder) &nbsp;|&nbsp; **Cost tier:** Zero
+
+Scores every retrieved candidate document against the standalone query using a cross-encoder relevance model and keeps only the highest-quality results.
+
+- **Offline execution:** FlashRank runs a CPU cross-encoder entirely locally — no network latency, no API cost.
+- **Per-source top-K filtering** (`SOURCE_FINAL_LIMITS`): Keeps top 3 Quran verses, top 5 Hadiths, top 2 Tafsir passages, top 6 general knowledge documents.
+- **Precision over recall:** Even if 60+ candidates are retrieved, only the most semantically precise documents reach the LLM — preventing hallucination from low-quality context.
+
+---
+
+### Node ⑤ — `generate_response`
+**Model:** GPT-4o flagship &nbsp;|&nbsp; **Cost tier:** Standard
+
+Synthesizes the reranked documents into a grounded, scholarly Islamic answer.
+
+- **Authentic Arabic text:** Includes Arabic script for Quranic verses and Du'as.
+- **Full citations:** Every claim is cited with Surah name + Ayah number, Hadith collection + narrator, or Tafsir author.
+- **Scholarly constraints:** Prompt instructs the model to never fabricate — if the retrieved context does not cover the question, it explicitly states the limitation.
+- **SSE token streaming:** Uses `ChatOpenAI.astream()` and LangGraph's native `graph.astream(stream_mode=["updates","messages"])` — tokens are yielded to the client in real-time the moment they are generated.
+- **Post-processing:** Strips redundant "Sources & References" trailing sections to keep the rendered UI clean.
+
+---
+
+## 📚 Knowledge Base & Islamic Data Sources
+
+Four dedicated Qdrant collections, each with independent vector indexing:
+
+| Collection | Contents | Embeddings | Key Metadata Fields |
+|:---|:---|:---|:---|
+| **`quran`** | All 114 Surahs — Arabic text, English translation, transliteration | Dense + BM25 | `surah_name`, `ayah_number`, `En_source_url` |
+| **`hadith`** | Sahih Bukhari, Sahih Muslim, Abu Dawood, Tirmidhi, Ibn Majah, Nasa'i | Dense + BM25 | `narrator`, `collection`, `chapter`, `source_url` |
+| **`tafseer`** | Classical and contemporary Quran commentary with scholar attribution | Dense + BM25 | `scholar`, `Tafsir_Source`, `ayah_ref` |
+| **`general_islamic_info`** | Fiqh principles, Islamic history, practices, lifestyle guidance | Dense + BM25 | `topic`, `source_link`, `category` |
+
+**Ingestion design principles:**
+- **1-to-1 record integrity:** Quranic verses and Hadith narrations are stored as discrete, intact semantic units — never arbitrarily split mid-verse or mid-narration.
+- **Context fusion for Hadith:** Narrator chain (`sanad`) is prepended to narration text (`matn`) before embedding so vector search matches both speaker and subject matter.
+- **Stateful resume:** The ingestion pipeline tracks `points_count` before each batch upload (`BATCH_SIZE=500`). If an ingest job is interrupted, it resumes without duplicating vectors or wasting API credits.
+
+---
+
+## 🗄️ 3-Tier Semantic Caching Engine
+
+Islamic queries from real users are highly repetitive in intent. The caching engine avoids expensive LLM classification calls on every request:
 
 ```
+Incoming Query
+      │
+      ▼
+┌─────────────────────────────────────┐
+│  Layer 1: Redis Exact Match         │  < 1ms  · $0.00
+│  Key: exact_cache:<normalized_hash> │
+└────────────────┬────────────────────┘
+                 │ MISS
+                 ▼
+┌─────────────────────────────────────┐
+│  Layer 2: Qdrant Semantic Cache     │  ~12ms  · $0.00
+│  Collection: classification_cache   │
+│  Threshold: cosine similarity ≥ 0.85│
+└────────────────┬────────────────────┘
+                 │ MISS
+                 ▼
+┌─────────────────────────────────────┐
+│  Layer 3: OpenAI LLM Fallback       │  ~400ms · ~$0.0006
+│  GPT-4o-mini + Pydantic Structured  │
+│  Output → Write-Through to L1 & L2  │
+└─────────────────────────────────────┘
+```
+
+**Why cache classification intent (not full responses)?**
+Full-response caching only helps for exact duplicate queries. Caching *intent classification* means semantically similar but textually different queries ("Hadith on fasting" vs "What did the Prophet ﷺ say about Sawm?") both benefit — the correct collections are identified instantly without an LLM call, while the final synthesized answer remains fresh and contextual per query.
+
+| Tier | Mechanism | Latency | Cost | Fallback |
+|:---|:---|:---|:---|:---|
+| L1 Exact Match | Redis key-value (TTL: 1h) | **< 1ms** | **$0.00** | In-memory `TTLCache(500, 3600s)` |
+| L2 Semantic Cache | Qdrant vector collection (cosine ≥ 0.85) | **~12ms** | **$0.00** | In-memory numpy cosine list (200 items) |
+| L3 LLM Fallback | `ChatOpenAI` + `QueryClassificationSchema` | **~400ms** | **~$0.0006** | Writes back to L1 and L2 automatically |
+
+---
+
+## 🔍 Hybrid Vector Search
+
+Each Qdrant collection query combines two complementary retrieval signals:
+
+- **Dense vectors (semantic):** OpenAI `text-embedding-3-small` (1536-dimensional) — captures meaning, intent, and conceptual similarity across paraphrases.
+- **Sparse vectors (lexical):** BM25 via FastEmbed `Qdrant/bm25` — captures exact keyword and terminology matches (specific Surah names, Hadith collection names, Arabic terms).
+- **Fusion:** Qdrant's native **Reciprocal Rank Fusion (RRF)** merges both ranking signals — documents that score well on both semantic relevance AND lexical match rank highest.
+
+The BM25 model (`Qdrant/bm25`) is loaded once at application startup and shared across all retrieval calls to avoid repeated initialization overhead. Hybrid search is feature-flagged via `HYBRID_SEARCH_ENABLED` and falls back gracefully to dense-only if FastEmbed is unavailable.
+
+---
+
+## 🎯 Cross-Encoder Reranking
+
+After parallel retrieval produces a large candidate pool (up to 60+ documents), FlashRank applies a **cross-encoder** to score each document:
+
+- **Cross-encoder vs bi-encoder:** A cross-encoder jointly encodes the query AND document together, producing a precise relevance score. This is significantly more accurate than cosine similarity alone (which embeds query and document independently).
+- **Fully offline:** FlashRank (~67MB model) runs on CPU with no external API call. Model loads once at startup.
+- **Cost:** Zero per query — no tokens consumed, no network latency.
+- **Effect:** 60 initial candidates are trimmed to ~16 high-precision documents before they reach the LLM, keeping context windows tight and responses accurate.
+
+---
+
+## 🌊 Real-Time SSE Streaming
+
+The primary endpoint `/text_query/stream` returns a `text/event-stream` feed rather than a bulk JSON response:
+
+```http
 data: {"status": "searching", "message": "Analyzing and retrieving from Islamic sources..."}
 
 data: {"status": "generating", "message": "Composing response..."}
@@ -161,84 +298,224 @@ data: {"token": "In", "done": false}
 data: {"token": " Islam,", "done": false}
 data: {"token": " patience", "done": false}
 
-data: {"done": true, "full_response": "In Islam, patience (Sabr)..."}
+data: {"done": true, "full_response": "In Islam, patience (Sabr)...", "session_id": "uuid"}
 ```
 
-* **Why SSE over WebSockets?** Unidirectional server-to-client streaming, native HTTP/2 multiplexing, automatic reconnection, and frictionless compatibility with reverse proxies and corporate firewalls.
-* **Zero Proxy Buffering:** Caddy reverse proxy configured with `flush_interval -1` to guarantee instant delivery of every single token fragment without buffering.
-
-### 3. Domain-Specific Chunking & Ingestion Strategy
-
-* **Qur'an & Hadith Preservation (1-to-1 Intact Records):** Canonical religious verses must not be sliced arbitrarily mid-sentence. Verses and Hadith narrations are preserved as discrete, contextualized semantic units.
-* **Context Fusion:** Hadith records fuse `Narrator: <sanad>` with `Text: <matn>` to ensure vector search matches both the speaker and the subject matter.
-* **1536-Dimensional Embeddings:** Embedded using OpenAI `text-embedding-3-small`, configured with Cosine distance indexing in Qdrant.
-* **Stateful Auto-Resume:** Ingestion tracks Qdrant `points_count` before each batch upload (`BATCH_SIZE = 500`). If an ingestion job halts mid-way, it resumes without duplicating embeddings or spending redundant API credits.
+**Implementation details:**
+- LangGraph's `graph.astream(stream_mode=["updates","messages"])` streams tokens natively as they are generated.
+- FastAPI `StreamingResponse` wraps the async generator — no server-side buffering.
+- Caddy is configured with `flush_interval -1` to forward every byte immediately without proxy-side buffering.
+- **Status events** (searching/generating) are sent before token streaming begins, so the UI can show a live phase indicator.
+- **Why SSE and not WebSockets?** Communication is strictly one-way (one prompt → N tokens). SSE is simpler, HTTP-native, auto-reconnects, and works through all reverse proxies and CDNs without sticky sessions or complex handshaking.
 
 ---
 
-## 🎨 Frontend Architecture & Design System
+## 💬 Conversation Memory & Session Management
 
-The frontend is custom-built with **Next.js 16 (App Router)**, **React 19**, and **Tailwind CSS**, designed with a calm, scholarly aesthetic inspired by classic Islamic typography:
+Multi-turn conversation context is maintained through two complementary layers:
 
-* **Two-Column Responsive Layout:** Collapsible sidebar with navigation tabs (New Chat, History, Bookmarks, Topics, Settings) and daily Quranic reflection quotes.
-* **Spacious Arabic & Verse Rendering:** Automatic RTL detection for Arabic script (`amiri` / Arabic font families) isolated cleanly on dedicated cards with source badges.
-* **Interactive Citations Drawer:** Collapsible source drawer extracting authentic references (Surah numbers, Hadith collection names) with 1-click copy.
-* **Adaptive Dark / Light Theme:** Instant toggle with smooth CSS variable transitions and persistent theme state.
-* **Zero Layout Shift Streaming:** Auto-scrolling viewport synchronized with the progressive Markdown token feed and pulsing indicator.
+**Session Identity:**
+- Each browser session receives a unique `session_id` (UUID4) on first request.
+- The frontend persists this in local state and sends it with every subsequent request.
+- The backend attaches it as the LangGraph `thread_id` in `RunnableConfig`.
+
+**Persistent Checkpointing:**
+- `LangGraph AsyncRedisSaver` checkpointer stores the complete `LangGraphState` (including `chat_history`) in Redis after every node execution.
+- Conversation history survives container restarts, process crashes, and server reboots — as long as the Redis data volume is preserved.
+- `rewrite_query` reads the last N turns from this checkpointed state to provide context-aware query rewriting at minimal cost.
+- The checkpointer is initialized in the FastAPI `lifespan` async context manager and cleanly torn down on shutdown via `teardown_graph()`.
+
+---
+
+## 🔬 LangSmith Observability & Live Graph
+
+**Production Tracing:**
+- Every pipeline execution is traced to LangSmith with full node-level latency, token counts, and input/output payloads.
+- Enabled via `LANGCHAIN_TRACING_V2=true` at application startup when `LANGCHAIN_API_KEY` is present.
+- The `@traceable` decorator wraps key service methods for granular sub-trace visibility inside each node.
+
+**LangSmith Studio — Live Visual Graph:**
+- A dedicated `langgraph-api` Docker container runs `langgraph dev --host 0.0.0.0 --port 8123` using the same application Dockerfile (no separate image needed).
+- `langgraph.json` maps `./services/langgraph_service.py:graph` to expose the compiled graph topology.
+- The module-level `graph = _build_graph_for_studio()` export is a topology-only compile (no checkpointer) that is safe for synchronous import-time use.
+- Caddy proxies `https://<domain>/langgraph/*` → `langgraph-api:8123`, solving the HTTPS/mixed-content browser block so LangSmith Studio can connect securely.
+
+```
+Studio URL: https://smith.langchain.com/studio/?baseUrl=https://islamic-ai-babar.duckdns.org/langgraph
+```
+
+---
+
+## 🎨 Frontend Architecture
+
+The frontend is a fully custom-built application with a calm, scholarly aesthetic inspired by classical Islamic typography.
+
+**Tech Stack:**
+
+| Layer | Technology |
+|:---|:---|
+| Framework | Next.js 16 (App Router) |
+| UI Library | React 19 |
+| Language | TypeScript |
+| Styling | Tailwind CSS v4 |
+| Hosting | Vercel Edge CDN |
+| HTTP / Streaming | Native `fetch` + `ReadableStream` SSE decoder |
+| Markdown | `react-markdown` + `remark-gfm` |
+
+**Components & Features:**
+
+| Component | Features |
+|:---|:---|
+| **`Sidebar.tsx`** | Collapsible two-column drawer with tabs: New Chat, Conversation History, Bookmarks, Topics, Settings. Daily Quranic reflection quote at the bottom. |
+| **`Header.tsx`** | Live backend connection pulse indicator (green / amber / red). Dark ↔ light mode toggle. Version badge. Branding. |
+| **`MessageBubble.tsx`** | Full Markdown rendering (`react-markdown` + GFM). Automatic RTL detection for Arabic script. Collapsible source citations drawer. Copy-to-clipboard. Message actions bar. |
+| **`InputBar.tsx`** | Auto-resizing textarea. Submit on Enter (Shift+Enter for newline). Disabled state during active streaming. |
+| **`TypingIndicator.tsx`** | Animated three-dot phase indicator showing live pipeline status: "Analyzing sources…" → "Composing response…" |
+| **`WelcomeScreen.tsx`** | Topic suggestion cards (Prayer, Fasting, Marriage, Quran, etc.) to guide new users. |
+
+**Additional frontend features:**
+- **Dark / Light mode:** Instant toggle with smooth CSS variable transitions and persistent user preference.
+- **Zero layout shift streaming:** Auto-scrolling viewport synchronized with the progressive Markdown token feed and a live pulsing cursor.
+- **Conversation history:** Sessions listed in sidebar with auto-generated titles.
+- **Bookmarks:** Save any AI response for future reference.
+- **Topic tagging:** Conversations grouped by Islamic topic category.
+- **Backend health indicator:** Live green pulse when FastAPI is reachable; amber/red when offline.
+
+---
+
+## 🚀 Infrastructure & Deployment
+
+**AWS EC2 — Backend Stack:**
+
+All backend services run as a Docker Compose stack of 5 containers on a single EC2 instance:
+
+| Container | Image / Build | Role |
+|:---|:---|:---|
+| `caddy-ssl` | `caddy:2-alpine` | Reverse proxy, automatic Let's Encrypt TLS, path-based routing |
+| `islamic-chatbot-api` | Local Dockerfile | FastAPI backend + LangGraph pipeline |
+| `qdrant` | `qdrant/qdrant:latest` | Self-hosted vector database |
+| `redis` | `redis/redis-stack-server:latest` | Cache + rate limiter + session checkpointer |
+| `langgraph-api` | Local Dockerfile | LangGraph dev server for LangSmith Studio |
+
+**Caddy routing rules:**
+```
+/langgraph/*  →  langgraph-api:8123  (strips prefix, proxies for LangSmith Studio)
+/*            →  app:8000            (FastAPI catch-all)
+```
+
+**Vercel — Frontend:**
+- Next.js 16 app deployed to Vercel's global Edge CDN.
+- `NEXT_PUBLIC_API_URL` points to `https://islamic-ai-babar.duckdns.org`.
+
+**Domain & TLS:**
+- Free dynamic DNS via DuckDNS (`islamic-ai-babar.duckdns.org`).
+- Caddy manages TLS certificate issuance and renewal automatically via Let's Encrypt ACME — no manual certificate work.
+
+**Memory management on EC2:**
+- 2GB Linux swapfile on EBS to prevent OOM kills on small instances.
+- Redis configured with `256MB` LRU memory cap.
+- Qdrant uses disk-backed mmap storage — vectors are not fully loaded into RAM.
+- Next.js build and SSR offloaded entirely to Vercel — EC2 only runs Python processes.
+
+**Health checks:**
+- `qdrant` and `redis` containers have Docker `healthcheck` directives.
+- The `app` container has `depends_on: condition: service_healthy` for both — it only starts after both are confirmed ready.
+
+---
+
+## ⚙️ Concurrency & Scaling Design
+
+The application handles 50+ concurrent users through:
+
+| Concern | Solution |
+|:---|:---|
+| **Classification concurrency** | `ThreadPoolExecutor(max_workers=4)` — prevents blocking the async event loop during sync OpenAI calls |
+| **Retrieval concurrency** | `ThreadPoolExecutor(max_workers=8)` — all Qdrant collections searched in parallel |
+| **Rate limiting** | `fastapi-limiter` enforces 10 requests/minute per client IP via Redis sliding window |
+| **Async event loop** | Full `async/await` from HTTP layer through LangGraph stream — no blocking I/O on the main thread |
+| **Redis connection pool** | `max_connections=50` on classification cache Redis client |
+| **Session isolation** | Each user's state is keyed by unique `session_id` / LangGraph `thread_id` — no shared mutable state between users |
+| **Response caching** | Classification cache means repeated/similar queries skip LLM calls entirely — saves latency and cost at scale |
+
+---
+
+## 🛡️ Circuit Breakers & Resilience
+
+The system degrades gracefully on infrastructure failures rather than crashing:
+
+| Failure Scenario | Automatic Fallback |
+|:---|:---|
+| Redis unreachable at startup | L1 cache falls back to in-memory `TTLCache(maxsize=500, ttl=3600)` |
+| Qdrant semantic cache unavailable | L2 cache falls back to in-memory numpy cosine list (200 items) |
+| Tavily API key missing or request fails | Web search silently disabled; pipeline continues with vector retrieval |
+| BM25 / FastEmbed not installed | Hybrid search disabled; falls back to dense-only retrieval automatically |
+| LangGraph stream error | Error caught per-session; yields a graceful error SSE event to the client |
+| Container startup ordering | Docker `depends_on` with `condition: service_healthy` ensures Qdrant and Redis are ready before app starts |
 
 ---
 
 ## 📂 Project Structure
 
-```text
+```
 new-advance-islamic-chatbot/
-├── application.py                  # FastAPI server: lifespan, CORS, rate limiter, SSE endpoint
-├── Dockerfile                      # Production multi-stage Docker build for backend
-├── docker-compose.yaml             # Microservices composition (App, Qdrant, Redis, Caddy)
-├── requirements.txt                # Pinned production Python dependencies
-├── langgraph.json                  # LangGraph configuration
-├── .dockerignore                   # Build isolation configuration
-├── .gitignore                      # Cloud & key safety rules
+│
+├── application.py              # FastAPI app: lifespan, CORS, rate limiter, SSE & sync endpoints
+├── Dockerfile                  # Multi-stage backend Docker build
+├── docker-compose.yaml         # Local dev: app, qdrant, redis, langgraph-api
+├── docker-compose.prod.yaml    # Production: + caddy reverse proxy with auto SSL
+├── Caddyfile                   # Caddy routing: /langgraph/* + /* with flush_interval -1
+├── langgraph.json              # LangGraph config: graph export path + port 8123
+├── requirements.txt            # Pinned Python dependencies
+├── .env.example                # Environment variable template
+│
+├── services/
+│   ├── langgraph_service.py    # 5-node LangGraph pipeline, astream, module-level graph export
+│   ├── openai_service.py       # 3-tier caching engine, LLM calls, embeddings, query rewrite
+│   ├── qdrant_service.py       # Qdrant client, hybrid search (dense + BM25 + RRF), ingestion
+│   ├── rerank_service.py       # FlashRank cross-encoder reranking wrapper
+│   └── prompt_templates.py     # System prompts: classification, rewrite, Arabic response
+│
+├── schemas/
+│   ├── data_classes/
+│   │   └── langraph_state.py        # LangGraphState TypedDict with all pipeline fields
+│   ├── routes/
+│   │   └── text_query.py            # FastAPI request schema (query + session_id)
+│   └── structured_outputs/
+│       ├── query_classification.py  # Pydantic schema for GPT-4o-mini classification output
+│       └── query_rewrite.py         # Pydantic schema for standalone query rewrite output
 │
 ├── backend/
 │   └── vector_store/
-│       ├── document_loader.py      # Custom IslamicJSONLoader & directory processors
-│       ├── ingest.py               # Ingestion orchestrator & batched vector uploader
-│       └── storage/                # Raw source datasets (Quran, Hadith, Tafsir, Texts)
+│       ├── document_loader.py  # Custom IslamicJSONLoader, heterogeneous schema detection
+│       ├── ingest.py           # Stateful ingestion orchestrator, batched upload, resume support
+│       └── storage/            # Raw Islamic source datasets (not committed — large binary files)
 │
-├── frontend/                       # Next.js 16 React App
+├── utils/
+│   ├── config.py               # Pydantic BaseSettings: all env vars with typed defaults
+│   └── custom_logger.py        # Structured console + rotating file logger
+│
+├── evaluation/                 # RAGAS evaluation scripts and metric reports
+│
+├── frontend/                   # Next.js 16 application (deployed separately to Vercel)
 │   ├── src/
 │   │   ├── app/
-│   │   │   ├── layout.tsx          # Root layout, fonts, and theme metadata
-│   │   │   ├── page.tsx            # Main chat application & streaming state manager
-│   │   │   └── globals.css         # Design system tokens & typography
+│   │   │   ├── layout.tsx           # Root layout, Google Fonts, global metadata
+│   │   │   ├── page.tsx             # Chat orchestrator: sessions, SSE consumer, state
+│   │   │   └── globals.css          # Design tokens, typography, dark/light theme variables
 │   │   ├── components/
-│   │   │   ├── Header.tsx          # Header with live backend connection pulse & theme toggle
-│   │   │   ├── Sidebar.tsx         # Two-column navigation drawer & bookmarks
-│   │   │   ├── MessageBubble.tsx   # Markdown renderer, Arabic blocks & action bar
-│   │   │   ├── InputBar.tsx        # Auto-resizing input with paperplane trigger
-│   │   │   ├── TypingIndicator.tsx # Animated phase status ("Analyzing sources...")
-│   │   │   └── WelcomeScreen.tsx   # Topic suggestion cards
+│   │   │   ├── Header.tsx           # Live health pulse, dark mode toggle, branding
+│   │   │   ├── Sidebar.tsx          # History, Bookmarks, Topics, Settings + Quranic quote
+│   │   │   ├── MessageBubble.tsx    # Markdown + Arabic RTL render, citations, copy action
+│   │   │   ├── InputBar.tsx         # Auto-resize textarea, submit on Enter
+│   │   │   ├── TypingIndicator.tsx  # Animated phase status display
+│   │   │   └── WelcomeScreen.tsx    # Topic suggestion cards for new users
 │   │   └── lib/
-│   │       ├── api.ts              # SSE ReadableStream decoder & health check pinger
-│   │       └── types.ts            # TypeScript interfaces
+│   │       ├── api.ts               # sendQuery, sendQueryStream (SSE decoder), healthCheck
+│   │       └── types.ts             # TypeScript interfaces for API responses and app state
 │   ├── package.json
-│   └── tsconfig.json
+│   └── Dockerfile                   # Frontend container for local Docker dev
 │
-├── schemas/
-│   ├── data_classes/               # Pydantic & dataclass definitions for LangGraph state
-│   ├── routes/                     # Request/Response schemas for FastAPI endpoints
-│   └── structured_outputs/         # Pydantic schemas for OpenAI query classification
-│
-├── services/
-│   ├── langgraph_service.py        # 3-node LangGraph pipeline & query_stream generator
-│   ├── openai_service.py           # 3-tier caching engine & OpenAI LLM interface
-│   ├── qdrant_service.py           # Qdrant client, collection setup, and vector search
-│   └── prompt_templates.py         # Grounded system prompts & classification guidelines
-│
-└── utils/
-    ├── config.py                   # Pydantic BaseSettings loading from .env
-    └── custom_logger.py            # Structured console & file logging
+└── qdrant_storage/             # Persisted Qdrant vector data (Docker volume mount)
 ```
 
 ---
@@ -246,144 +523,182 @@ new-advance-islamic-chatbot/
 ## 🚀 Quickstart & Local Setup
 
 ### Prerequisites
-* Docker & Docker Compose
-* Node.js 18+ (for frontend development)
-* Python 3.11+
-* OpenAI API Key
+- Docker & Docker Compose v2
+- Node.js 18+ (for frontend-only development)
+- Python 3.11+ (for bare-metal backend development)
+- OpenAI API Key (required)
+- Tavily API Key (optional — enables live web search)
+- LangSmith API Key (optional — enables tracing + Studio)
 
-### Option A: 1-Command Local Launch with Docker
+### Option A: Full Stack with Docker (Recommended)
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/babar-ai/new_advance_islamic_chatbot.git
-   cd new_advance_islamic_chatbot
-   ```
+```bash
+# 1. Clone the repository
+git clone https://github.com/babar-ai/new_advance_islamic_chatbot.git
+cd new_advance_islamic_chatbot
 
-2. **Configure Environment Variables:**
-   ```bash
-   cp .env.example .env
-   ```
-   Add your API keys in `.env`:
-   ```env
-   OPENAI_API_KEY=sk-proj-...
-   TAVILY_API_KEY=tvly-...
-   LANGCHAIN_API_KEY=lsv2_pt-...
-   LANGCHAIN_TRACING_V2=true
-   LANGCHAIN_PROJECT=islamic-chatbot
-   ```
+# 2. Configure environment variables
+cp .env.example .env
+# Edit .env with your keys:
+#   OPENAI_API_KEY=sk-proj-...
+#   TAVILY_API_KEY=tvly-...             (optional)
+#   LANGCHAIN_API_KEY=lsv2_pt-...      (optional)
+#   LANGCHAIN_TRACING_V2=true           (optional)
+#   LANGCHAIN_PROJECT=islamic-chatbot   (optional)
 
-3. **Start all services:**
-   ```bash
-   docker compose up -d --build
-   ```
+# 3. Start all services
+docker compose up -d --build
 
-4. **Access the application:**
-   * **Frontend UI:** `http://localhost:3000`
-   * **FastAPI Docs:** `http://localhost:8000/docs`
-   * **Qdrant Dashboard:** `http://localhost:6333/dashboard`
-
----
-
-### Option B: Local Developer Mode (Bare Metal)
-
-1. **Start infrastructure containers (Qdrant & Redis):**
-   ```bash
-   docker run -d --name qdrant -p 6333:6333 -v $(pwd)/qdrant_storage:/qdrant/storage qdrant/qdrant:latest
-   docker run -d --name redis -p 6379:6379 redis:7-alpine
-   ```
-
-2. **Run the Backend:**
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   pip install -r requirements.txt
-   uvicorn application:application --reload --port 8000
-   ```
-
-3. **Run the Frontend:**
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
-
----
-
-## ☁️ Production Cloud Deployment ($0.00 / 6+ Months)
-
-The project is architected for zero-cost production hosting on free-tier cloud infrastructure:
-
-```
-Frontend:  Vercel Edge Global CDN (100% Free Forever)
-Backend:   AWS EC2 t3.small / t3.micro (Free Tier • Ubuntu 24.04 LTS)
-Domain:    DuckDNS Dynamic DNS (Free Forever • islamic-ai-babar.duckdns.org)
-Security:  Automated TLS 1.3 Let's Encrypt SSL via Caddy Reverse Proxy
+# 4. Access the application
+# Chat UI:           http://localhost:3000
+# FastAPI Docs:      http://localhost:8000/docs
+# Qdrant Dashboard:  http://localhost:6333/dashboard
+# LangSmith Studio:  https://smith.langchain.com/studio/?baseUrl=http://localhost:8123
 ```
 
-* **Memory Optimization:** Configured with a 2GB Linux swapfile on AWS EBS to prevent Out-Of-Memory (OOM) kills on micro instances.
-* **Cost Safeguard:** AWS CloudWatch zero-spend budget alert configured at `$0.01` threshold.
+### Option B: Bare Metal Development
+
+```bash
+# 1. Start infrastructure services
+docker run -d --name qdrant -p 6333:6333 \
+  -v $(pwd)/qdrant_storage:/qdrant/storage qdrant/qdrant:latest
+
+docker run -d --name redis -p 6379:6379 redis/redis-stack-server:latest
+
+# 2. Backend
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn application:application --reload --port 8000
+
+# 3. LangGraph dev server (optional — for LangSmith Studio)
+langgraph dev --host 0.0.0.0 --port 8123
+
+# 4. Frontend
+cd frontend
+npm install
+npm run dev                        # http://localhost:3000
+```
+
+### Environment Variables
+
+| Variable | Required | Description |
+|:---|:---|:---|
+| `OPENAI_API_KEY` | ✅ Yes | GPT-4o + GPT-4o-mini + embeddings |
+| `TAVILY_API_KEY` | Optional | Live web search for recent fatwas and contemporary queries |
+| `LANGCHAIN_API_KEY` | Optional | LangSmith tracing + Studio live graph |
+| `LANGCHAIN_TRACING_V2` | Optional | Set `true` to enable LangSmith tracing |
+| `LANGCHAIN_PROJECT` | Optional | LangSmith project name |
+| `QDRANT_URL` | Auto-set | `http://qdrant:6333` in Docker; `http://localhost:6333` locally |
+| `REDIS_HOST` | Auto-set | `redis` in Docker; `localhost` locally |
+| `HYBRID_SEARCH_ENABLED` | Optional | Set `true` to enable BM25 sparse hybrid search |
+| `CHAT_HISTORY_MAX_TURNS` | Optional | Number of past turns used for query rewriting |
 
 ---
 
 ## 📡 API Reference
 
-### 1. `POST /text_query/stream` (Primary Streaming Endpoint)
-Returns a real-time `text/event-stream` feed of tokens and status updates.
+### `POST /text_query/stream` — Primary Streaming Endpoint
 
-* **Headers:** `Content-Type: application/json`
-* **Body:**
-  ```json
-  {
-    "query": "What does Islam teach about honesty in business?"
-  }
-  ```
-* **Event Stream Output:**
-  ```http
-  data: {"status": "searching", "message": "Analyzing and retrieving from Islamic sources..."}
-  data: {"status": "generating", "message": "Composing response..."}
-  data: {"token": "Islam", "done": false}
-  data: {"token": " commands", "done": false}
-  data: {"done": true, "full_response": "Islam commands utmost honesty..."}
-  ```
+Returns a real-time `text/event-stream` of pipeline status and LLM tokens.
 
-### 2. `POST /text_query` (Synchronous Fallback)
-Returns a complete JSON response payload.
-* **Rate Limit:** 10 requests / minute per client IP.
-
-### 3. `GET /` (Health Check)
 ```json
+// Request body
 {
-  "status": "ok",
-  "version": "1.3"
+  "query": "What does Islam teach about honesty in business?",
+  "session_id": "optional-uuid-for-continued-conversation"
+}
+```
+
+```http
+// Response stream events
+data: {"status": "searching", "message": "Analyzing and retrieving from Islamic sources..."}
+data: {"status": "generating", "message": "Composing response..."}
+data: {"token": "Islam", "done": false}
+data: {"token": " commands", "done": false}
+data: {"done": true, "full_response": "Islam commands utmost honesty...", "session_id": "uuid"}
+```
+
+---
+
+### `POST /text_query` — Synchronous Fallback Endpoint
+
+Returns the complete response as a JSON payload. Rate limit: **10 requests per minute per IP**.
+
+```json
+// Response
+{
+  "status": "success",
+  "query": "...",
+  "message": "Full response text...",
+  "session_id": "uuid"
 }
 ```
 
 ---
 
-## 🎯 Technical Interview Q&A (System Design Talking Points)
+### `GET /` — Health Check
+
+```json
+{"status": "ok", "version": "1.3"}
+```
+
+---
+
+## 📊 Evaluation
+
+The `evaluation/` directory contains RAGAS-based evaluation scripts measuring:
+
+- **Faithfulness:** Does the answer stay grounded in the retrieved context?
+- **Answer Relevancy:** How well does the answer address the question?
+- **Context Precision / Recall:** Are the right Islamic documents being retrieved?
+
+RAGAS v0.2.15 is pinned for compatibility with `langchain-community`. Run evaluations with a HuggingFace `datasets` test set against the `/text_query` endpoint.
+
+---
+
+## 🧠 Technical Design Q&A
 
 <details>
-<summary><b>1. Why use a 3-tier caching hierarchy instead of caching the full LLM response directly?</b></summary>
+<summary><b>Why a 5-node pipeline instead of a single LLM call?</b></summary>
 
-> **Answer:** Full-response caching only works for duplicate queries, but query routing (classification) is much broader. By caching the *intent classification* (which collections to search), queries with identical intent but slightly different nuances (e.g. *"Tell me hadith on fasting"* vs *"What hadiths exist about sawm?"*) immediately bypass the LLM classification step and hit the right vector collections. The final synthesis remains contextual and fresh while saving 400ms+ per query.
+Each node has a single, testable responsibility. This makes the system inspectable, debuggable, and independently improvable. For example: the reranker can be swapped without touching retrieval; the query rewriter is skipped entirely on first-turn messages at zero cost; and each node's latency is independently traced in LangSmith. A single monolithic LLM call would be impossible to optimize or observe at this granularity.
+
 </details>
 
 <details>
-<summary><b>2. Why choose Server-Sent Events (SSE) over WebSockets for LLM streaming?</b></summary>
+<summary><b>Why FlashRank offline instead of a cloud reranking API?</b></summary>
 
-> **Answer:** WebSockets are bi-directional and stateful, requiring persistent socket connections, ping/pong heartbeats, and complex sticky sessions across load balancers. For LLM query responses, communication is strictly unidirectional (client sends 1 prompt, server streams N tokens). SSE operates over standard HTTP, natively handles automatic reconnection, is easily proxied via Caddy/Nginx, and works seamlessly with edge CDNs.
+Cloud reranking APIs (e.g. Cohere Rerank) add ~200–400ms network latency and per-query cost. FlashRank's CPU cross-encoder runs in ~50–150ms locally with zero API cost and zero network dependency. For a pipeline serving Islamic queries where the candidate pool is 16–60 documents, this is the optimal trade-off between quality and speed.
+
 </details>
 
 <details>
-<summary><b>3. How do you prevent Out-Of-Memory (OOM) crashes on 1GB/2GB cloud instances?</b></summary>
+<summary><b>Why hybrid search (dense + BM25) instead of dense-only?</b></summary>
 
-> **Answer:** We decoupled the memory-heavy Next.js build and SSR rendering to Vercel's Edge CDN, leaving only FastAPI, Qdrant, and Redis on the EC2 host. Furthermore, we allocated a 2GB Linux swapfile on the EBS volume, set a 256MB LRU memory cap on Redis, and utilized Qdrant's disk-backed vector storage with mmap configuration to maintain peak memory usage under ~450MB.
+Pure dense semantic search can miss queries that use exact Islamic terminology (e.g. "Surah Al-Baqarah", "Sahih Bukhari 1234", "Wudu"). BM25 catches these lexical matches precisely. RRF fusion gives the highest ranks to documents that score well on both signals — semantically relevant AND lexically matching — which is critical for a domain with precise religious vocabulary in both Arabic and English.
+
 </details>
 
 <details>
-<summary><b>4. How does the system handle vector retrieval collisions across Quran and Hadith?</b></summary>
+<summary><b>Why cache classification intent instead of full LLM responses?</b></summary>
 
-> **Answer:** Rather than storing all religious texts in a single massive vector namespace where Hadith commentary might crowd out divine Quranic verses, we maintain distinct collections (`quran`, `hadith`, `tafsir`, `general_islamic_info`). The classification engine dynamically picks which collections to query, and `ThreadPoolExecutor` runs parallel searches across them with strict per-collection document limits (`SOURCE_LIMITS`).
+Full-response caching only helps for exact duplicate queries. Caching *classification intent* (which collections to search) benefits all semantically similar queries. The synthesis step remains fresh and contextual per query while avoiding the 400ms+ LLM classification overhead for common intent patterns.
+
+</details>
+
+<details>
+<summary><b>Why SSE over WebSockets for streaming?</b></summary>
+
+LLM generation is strictly unidirectional (one prompt → N tokens). SSE uses standard HTTP, auto-reconnects natively, works through all proxies without sticky sessions, and is fully compatible with Caddy and Vercel's edge layer. WebSockets would add connection state complexity and sticky session requirements with no benefit for this one-way use case.
+
+</details>
+
+<details>
+<summary><b>How does the system stay within EC2 memory limits?</b></summary>
+
+Next.js is offloaded to Vercel so EC2 only runs Python processes. Redis has a 256MB LRU memory cap. Qdrant uses disk-backed mmap storage. A 2GB Linux swapfile on the EBS volume protects against OOM kills. Peak observed EC2 RSS stays under ~500MB with all 5 containers running.
+
 </details>
 
 ---
@@ -391,11 +706,12 @@ Returns a complete JSON response payload.
 ## 👨‍💻 Author
 
 **Babar Raheem**
-* GitHub: [@babar-ai](https://github.com/babar-ai)
-* LinkedIn: [Babar Raheem](https://linkedin.com/in/)
+- GitHub: [@babar-ai](https://github.com/babar-ai)
+- LinkedIn: [Babar Raheem](https://linkedin.com/in/babar-raheem)
 
 ---
 
 <div align="center">
-  <sub>Built with reverence, precision, and modern software engineering practices.</sub>
+  <sub>Built with reverence, precision, and modern software engineering practices.</sub><br/>
+  <sub>🤍 For the Ummah — Seek · Learn · Apply</sub>
 </div>
