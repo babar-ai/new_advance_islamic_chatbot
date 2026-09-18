@@ -909,3 +909,38 @@ class LangGraphService:
         except Exception as e:
             logger.error(f"Error in query_stream: {e}")
             yield {"done": True, "full_response": f"I apologize, but I encountered an error: {str(e)}", "session_id": session_id}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Module-level graph export — required by LangSmith Studio
+# ─────────────────────────────────────────────────────────────────────────────
+# langgraph.json points to this symbol: "./services/langgraph_service.py:graph"
+# LangSmith Studio imports it at startup to render the interactive visual graph.
+#
+# This is a *topology-only* compile (no checkpointer) so it can be built
+# synchronously at import time without an event loop.  The real production graph
+# (with AsyncRedisSaver) continues to live inside LangGraphService.setup_graph().
+# ─────────────────────────────────────────────────────────────────────────────
+def _build_graph_for_studio() -> object:
+    """Return a compiled StateGraph suitable for LangSmith Studio inspection."""
+    # Lazy import to avoid circular imports at module load time
+    _svc = LangGraphService.__new__(LangGraphService)
+
+    _wf = StateGraph(LangGraphState)
+    _wf.add_node("rewrite_query",       _svc._rewrite_query)
+    _wf.add_node("classify_and_search", _svc._classify_and_search)
+    _wf.add_node("parallel_retrieve",   _svc._parallel_retrieve)
+    _wf.add_node("rerank_documents",    _svc._rerank_documents)
+    _wf.add_node("generate_response",   _svc._generate_response)
+
+    _wf.set_entry_point("rewrite_query")
+    _wf.add_edge("rewrite_query",       "classify_and_search")
+    _wf.add_edge("classify_and_search", "parallel_retrieve")
+    _wf.add_edge("parallel_retrieve",   "rerank_documents")
+    _wf.add_edge("rerank_documents",    "generate_response")
+    _wf.add_edge("generate_response",   END)
+
+    return _wf.compile()          # no checkpointer — Studio only needs topology
+
+
+graph = _build_graph_for_studio()

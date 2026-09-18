@@ -3,5 +3,8 @@
   "graphs": {
     "islamic_chatbot": "./services/langgraph_service.py:graph"
   },
-  "env": ".env"
+  "env": ".env",
+  "http": {
+    "port": 8123
+  }
 }
