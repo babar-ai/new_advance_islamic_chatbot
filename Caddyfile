@@ -1,5 +1,19 @@
 islamic-ai-babar.duckdns.org {
-    reverse_proxy app:8000 {
-        flush_interval -1
+
+    # ── LangGraph Studio API (must come before the catch-all app proxy) ──
+    # LangSmith Studio connects to /langgraph/* over HTTPS (avoids mixed-content).
+    # Caddy strips the /langgraph prefix and forwards to the langgraph-api container.
+    handle /langgraph/* {
+        uri strip_prefix /langgraph
+        reverse_proxy langgraph-api:8123 {
+            flush_interval -1
+        }
+    }
+
+    # ── Main FastAPI App (catch-all) ────────────────────────────────────
+    handle {
+        reverse_proxy app:8000 {
+            flush_interval -1
+        }
     }
 }
